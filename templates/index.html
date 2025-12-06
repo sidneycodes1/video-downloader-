@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+     
+    <title>landing page </title>
+</head>
+<body>
+<body>
+    <div class="container">
+        <h1>Video Downloader</h1>
+        <p class="subtitle">Download videos from multiple platforms</p>
+        
+        <!-- Platform selection tabs -->
+        <div class="platform-tabs">
+            <a href="#" class="tab-link active" data-platform="youtube" onclick="selectPlatform(event, 'youtube')">
+                YouTube
+            </a>
+            <a href="#" class="tab-link" data-platform="facebook" onclick="selectPlatform(event, 'facebook')">
+                Facebook
+            </a>
+            <a href="#" class="tab-link" data-platform="tiktok" onclick="selectPlatform(event, 'tiktok')">
+                TikTok
+            </a>
+            <a href="#" class="tab-link" data-platform="twitter" onclick="selectPlatform(event, 'twitter')">
+                Twitter
+            </a>
+            <a href="#" class="tab-link" data-platform="instagram" onclick="selectPlatform(event, 'instagram')">
+                Instagram
+            </a>
+        </div>
+        
+        <!-- Download form -->
+        <form action="/download" method="POST">
+            <input type="hidden" name="platform" id="platform" value="youtube">
+            
+            <input type="text" name="url" id="url" placeholder="Paste YouTube video link here" required>
+            
+            <button type="submit">Download Video</button>
+        </form>
+        
+        <!-- Messages -->
+        {% if message %}
+        <div class="message {{ 'error' if error else 'success' }}">
+            {{ message }}
+        </div>
+        {% endif %}
+        
+        <!-- Platform info -->
+        <div class="platform-info">
+            <p id="platform-hint">Enter a YouTube video URL (e.g., https://www.youtube.com/watch?v=...)</p>
+        </div>
+    </div>
+
+    <script>
+        const platformPlaceholders = {
+            youtube: 'Paste YouTube video link here',
+            facebook: 'Paste Facebook video link here',
+            tiktok: 'Paste TikTok video link here',
+            twitter: 'Paste Twitter/X video link here',
+            instagram: 'Paste Instagram video link here'
+        };
+
+        const platformHints = {
+            youtube: 'Enter a YouTube video URL (e.g., https://www.youtube.com/watch?v=...)',
+            facebook: 'Enter a Facebook video URL (e.g., https://www.facebook.com/...)',
+            tiktok: 'Enter a TikTok video URL (e.g., https://www.tiktok.com/@.../video/...)',
+            twitter: 'Enter a Twitter/X video URL (e.g., https://twitter.com/.../status/...)',
+            instagram: 'Enter an Instagram video URL (e.g., https://www.instagram.com/p/...)'
+        };
+
+        function selectPlatform(event, platform) {
+            event.preventDefault();
+            
+            // Update active tab
+            document.querySelectorAll('.tab-link').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update form
+            document.getElementById('platform').value = platform;
+            document.getElementById('url').placeholder = platformPlaceholders[platform];
+            document.getElementById('platform-hint').textContent = platformHints[platform];
+            document.getElementById('url').value = '';
+            document.getElementById('url').focus();
+        }
+    </script>
+</body>
+</html>
+
