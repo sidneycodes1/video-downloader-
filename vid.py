@@ -24,10 +24,8 @@ def download():
                                  message="Please provide a video URL", 
                                  error=True)
         
-        # Create downloads folder
-        downloads_path = os.path.join(os.getcwd(), 'downloads')
-        if not os.path.exists(downloads_path):
-            os.makedirs(downloads_path)
+        # Use /tmp directory (only writable location on Vercel)
+        downloads_path = '/tmp'
         
         # Configure yt-dlp options based on platform
         ydl_opts = {
@@ -70,6 +68,7 @@ def download():
                              message=error_message, 
                              error=True)
 
+# For Vercel
 app = app
 
 if __name__ == "__main__":
