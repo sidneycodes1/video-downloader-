@@ -70,6 +70,8 @@ def download():
                              message=error_message, 
                              error=True)
 
+app = app
+
 if __name__ == "__main__":
     print("\n" + "="*50)
     print("🚀 Multi-Platform Video Downloader Starting...")
