@@ -1,3 +1,8 @@
+/* ===================================
+   SHARED STYLES FOR BOTH PAGES
+   =================================== */
+
+/* Reset and Base Styles */
 * {
     margin: 0;
     padding: 0;
@@ -5,156 +10,541 @@
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: 'Arial', sans-serif;
+    overflow-x: hidden;
+}
+
+/* ===================================
+   LANDING PAGE STYLES (index.html)
+   =================================== */
+
+/* Hero Section - Full Screen Blue Background */
+.hero {
+    background: linear-gradient(135deg, #0079d3 0%, #0066b8 100%);
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Header with Brand Name and Lines */
+.header {
+    padding: 30px 50px;
+    display: flex;
+    align-items: center;
+    position: relative;
+    z-index: 10;
+}
+
+.brand-lines {
+    display: flex;
+    gap: 8px;
+    margin-right: 15px;
+}
+
+.line {
+    width: 4px;
+    height: 60px;
+    background: white;
+    border-radius: 2px;
+}
+
+.brand-name {
+    font-size: 48px;
+    font-weight: bold;
+    color: white;
+    letter-spacing: -1px;
+}
+
+/* Top Right Decorative Circle */
+.top-decoration {
+    position: absolute;
+    top: -80px;
+    right: -80px;
+    width: 300px;
+    height: 300px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    overflow: hidden;
+    z-index: 1;
+}
+
+.stripes {
+    display: flex;
+    height: 100%;
+    transform: rotate(0deg);
+}
+
+.stripe {
+    flex: 1;
+    background: white;
+    opacity: 0.3;
+    margin: 0 3px;
+}
+
+/* Main Content Area */
+.content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 20px;
+    padding: 40px 20px;
+    position: relative;
+    z-index: 10;
 }
 
-.container {
-    background: white;
-    padding: 40px;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 600px;
-    width: 100%;
-}
-
-h1 {
-    color: #333;
-    margin-bottom: 5px;
+.title {
+    font-size: 72px;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 15px;
     text-align: center;
-    font-size: 32px;
+    line-height: 1.2;
 }
 
 .subtitle {
-    color: #666;
+    font-size: 24px;
+    color: rgba(255, 255, 255, 0.95);
+    margin-bottom: 80px;
     text-align: center;
-    margin-bottom: 25px;
-    font-size: 14px;
 }
 
-.platform-tabs {
+/* Platform Icons Container */
+.platforms {
     display: flex;
-    gap: 10px;
-    margin-bottom: 25px;
+    gap: 40px;
+    margin-bottom: 40px;
     flex-wrap: wrap;
     justify-content: center;
 }
 
-.tab-link {
-    padding: 10px 20px;
-    background: #f5f5f5;
-    color: #666;
-    text-decoration: none;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.3s;
-    border: 2px solid transparent;
+.platform-icon {
+    width: 140px;
+    height: 140px;
+    background: rgba(100, 210, 230, 0.9);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
-.tab-link:hover {
-    background: #e8e8e8;
-    transform: translateY(-2px);
+.platform-icon:hover {
+    transform: scale(1.1) translateY(-5px);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
 }
 
-.tab-link.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.platform-icon:active {
+    transform: scale(1.05) translateY(-2px);
+}
+
+/* SVG Icons Styling */
+.platform-icon svg {
+    width: 70px;
+    height: 70px;
+    fill: white;
+}
+
+/* Platform Label */
+.platform-label {
     color: white;
-    border-color: #667eea;
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: 4px;
+    text-align: center;
+    opacity: 0.9;
 }
 
-form {
+/* ===================================
+   DOWNLOAD PAGE STYLES (download.html)
+   =================================== */
+
+/* Main Content Area with Blue Background */
+.main-content {
+    background: #0079d3;
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    align-items: center;
+    padding: 40px 20px 60px;
+    position: relative;
+    min-height: calc(100vh - 150px);
 }
 
-input[type="text"] {
-    padding: 15px;
-    border: 2px solid #e0e0e0;
+/* Back Button Container */
+.back-button-container {
+    width: 100%;
+    max-width: 1200px;
+    display: flex;
+    align-items: center;
+    margin-bottom: 40px;
+}
+
+/* Back Button (Left Side) */
+.back-button {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: transparent;
+    border: 3px solid white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.back-button:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.back-button svg {
+    width: 30px;
+    height: 30px;
+    fill: white;
+}
+
+/* Dynamic Platform Icon Circle (Top-Center) */
+.platform-circle {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: #6af0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 80px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.platform-circle svg {
+    width: 60px;
+    height: 60px;
+    fill: white;
+}
+
+/* Input and Download Section */
+.input-section {
+    width: 100%;
+    max-width: 800px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin: 0 auto;
+}
+
+/* Input Box */
+.input-box {
+    flex: 1;
+    background: white;
+    border: 3px solid #a855f7;
+    border-radius: 50px;
+    padding: 20px 35px;
+    font-size: 24px;
+    outline: none;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s ease;
+}
+
+.input-box::placeholder {
+    color: #cccccc;
+    font-size: 24px;
+}
+
+.input-box:focus {
+    border-color: #9333ea;
+    box-shadow: 0 8px 40px rgba(168, 85, 247, 0.3);
+}
+
+/* Download Button */
+.download-button {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: transparent;
+    border: 3px solid white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.download-button:hover:not(:disabled) {
+    transform: scale(1.1);
+    box-shadow: 0 0 25px rgba(255, 255, 255, 0.5);
+}
+
+.download-button svg {
+    width: 35px;
+    height: 35px;
+    fill: white;
+}
+
+/* Spinner Animation */
+.download-button .spinner {
+    width: 35px;
+    height: 35px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Error Message */
+.error-message {
+    margin-top: 20px;
+    padding: 15px 25px;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
     border-radius: 10px;
     font-size: 16px;
-    transition: all 0.3s;
+    text-align: center;
+    max-width: 800px;
+    width: 100%;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    animation: slideDown 0.3s ease;
 }
 
-input[type="text"]:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-button {
-    padding: 15px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+/* Disabled Input State */
+.input-box:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* ===================================
+   SHARED FOOTER STYLES
+   =================================== */
+
+/* Footer Section */
+.footer {
+    background: #111111;
+    padding: 30px 20px;
+    text-align: center;
     color: white;
-    border: none;
-    border-radius: 10px;
-    font-size: 18px;
-    font-weight: bold;
+}
+
+.footer-text {
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 20px;
+    letter-spacing: 0.5px;
+}
+
+.footer-icons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 35px;
+}
+
+.footer-icon-link {
+    display: inline-block;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.footer-icon {
+    width: 40px;
+    height: 40px;
     cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: all 0.3s ease;
+    fill: white;
+    display: block;
 }
 
-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+.footer-icon-link:hover .footer-icon {
+    transform: scale(1.2);
+    fill: rgba(255, 255, 255, 0.9);
 }
 
-button:active {
-    transform: translateY(0);
-}
+/* ===================================
+   RESPONSIVE DESIGN
+   =================================== */
 
-.message {
-    padding: 15px;
-    border-radius: 10px;
-    margin-top: 20px;
-    text-align: center;
-    font-size: 14px;
-}
-
-.error {
-    background: #fee;
-    color: #c33;
-    border: 1px solid #fcc;
-}
-
-.success {
-    background: #efe;
-    color: #3c3;
-    border: 1px solid #cfc;
-}
-
-.platform-info {
-    margin-top: 20px;
-    padding: 12px;
-    background: #f8f9fa;
-    border-radius: 8px;
-    text-align: center;
-}
-
-.platform-info p {
-    color: #666;
-    font-size: 13px;
-    margin: 0;
-}
-
-@media (max-width: 600px) {
-    .container {
-        padding: 25px;
+@media (max-width: 768px) {
+    /* Landing Page Responsive */
+    .header {
+        padding: 20px 30px;
     }
-    
-    h1 {
-        font-size: 24px;
+
+    .brand-name {
+        font-size: 36px;
     }
-    
-    .tab-link {
-        padding: 8px 15px;
-        font-size: 13px;
+
+    .line {
+        height: 45px;
+        width: 3px;
+    }
+
+    .title {
+        font-size: 48px;
+    }
+
+    .subtitle {
+        font-size: 18px;
+        margin-bottom: 60px;
+    }
+
+    .platforms {
+        gap: 30px;
+    }
+
+    .platform-icon {
+        width: 120px;
+        height: 120px;
+    }
+
+    .platform-icon svg {
+        width: 60px;
+        height: 60px;
+    }
+
+    .top-decoration {
+        width: 200px;
+        height: 200px;
+        top: -50px;
+        right: -50px;
+    }
+
+    /* Download Page Responsive */
+    .main-content {
+        padding: 30px 15px 40px;
+    }
+
+    .back-button {
+        width: 50px;
+        height: 50px;
+    }
+
+    .back-button svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .platform-circle {
+        width: 100px;
+        height: 100px;
+        margin-bottom: 60px;
+    }
+
+    .platform-circle svg {
+        width: 50px;
+        height: 50px;
+    }
+
+    .input-section {
+        flex-direction: column;
+        gap: 20px;
+        max-width: 90%;
+    }
+
+    .input-box {
+        width: 100%;
+        font-size: 18px;
+        padding: 18px 25px;
+    }
+
+    .input-box::placeholder {
+        font-size: 18px;
+    }
+
+    .download-button {
+        width: 60px;
+        height: 60px;
+    }
+
+    .error-message {
+        font-size: 14px;
+        padding: 12px 20px;
+        margin-top: 15px;
+    }
+
+    .footer-text {
+        font-size: 22px;
+    }
+
+    .footer-icons {
+        gap: 25px;
+    }
+
+    .footer-icon {
+        width: 32px;
+        height: 32px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Landing Page Mobile */
+    .header {
+        padding: 15px 20px;
+    }
+
+    .brand-name {
+        font-size: 28px;
+    }
+
+    .title {
+        font-size: 36px;
+    }
+
+    .subtitle {
+        font-size: 16px;
+    }
+
+    .platforms {
+        flex-direction: column;
+        gap: 25px;
+    }
+
+    .platform-icon {
+        width: 100px;
+        height: 100px;
+    }
+
+    .platform-icon svg {
+        width: 50px;
+        height: 50px;
+    }
+
+    /* Download Page Mobile */
+    .input-box {
+        font-size: 16px;
+        padding: 15px 20px;
+    }
+
+    .input-box::placeholder {
+        font-size: 16px;
+    }
+
+    .footer-text {
+        font-size: 18px;
+    }
+
+    .footer-icons {
+        gap: 20px;
     }
 }

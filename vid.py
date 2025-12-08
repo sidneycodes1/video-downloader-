@@ -1,31 +1,61 @@
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, jsonify
+from flask_cors import CORS
 import yt_dlp
 import os
+import re
+import tempfile
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for API requests
+
+def validate_url(url):
+    """Validate if the URL is properly formatted"""
+    url_pattern = re.compile(
+        r'^https?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return url_pattern.match(url) is not None
+
+def normalize_platform(platform):
+    """Normalize platform name to lowercase"""
+    platform_map = {
+        'Instagram': 'instagram',
+        'Facebook': 'facebook',
+        'TikTok': 'tiktok',
+        'X': 'twitter',
+        'Twitter': 'twitter'
+    }
+    return platform_map.get(platform, platform.lower())
 
 @app.route("/")
 def home():
     return render_template('index.html')
 
-@app.route("/download", methods=["GET", "POST"])
-def download():
-    if request.method == "GET":
-        return render_template('index.html', 
-                             message="Please use the form to submit a video link", 
-                             error=True)
-    
+@app.route("/download")
+def download_page():
+    """Render the download page"""
+    return render_template("download.html")
+
+@app.route("/api/download", methods=["POST"])
+def download_video():
+    """API endpoint for downloading videos"""
     try:
-        url = request.form.get('url')
-        platform = request.form.get('platform', 'youtube')
+        data = request.get_json()
+        url = data.get('url', '').strip()
+        platform = normalize_platform(data.get('platform', 'youtube'))
         
+        # Validate URL
         if not url:
-            return render_template('index.html', 
-                                 message="Please provide a video URL", 
-                                 error=True)
+            return jsonify({'error': 'Please provide a video URL'}), 400
         
-        # Use /tmp directory (only writable location on Vercel)
-        downloads_path = '/tmp'
+        if not validate_url(url):
+            return jsonify({'error': 'Invalid URL format. Please enter a valid URL.'}), 400
+        
+        # Determine downloads path (use temp directory)
+        downloads_path = tempfile.gettempdir() if os.name != 'posix' else '/tmp'
         
         # Configure yt-dlp options with better compatibility
         ydl_opts = {
@@ -70,17 +100,15 @@ def download():
                 download_name=os.path.basename(filename)
             )
             
-            # Clean up file after sending
+            # Clean up file after sending (in background)
             try:
                 os.remove(filename)
-            except:
-                pass
+            except Exception as e:
+                print(f"Error cleaning up file: {e}")
                 
             return response
         else:
-            return render_template('index.html', 
-                                 message="Download failed - file not found", 
-                                 error=True)
+            return jsonify({'error': 'Download failed - file not found'}), 500
         
     except Exception as e:
         error_message = f"Download failed: {str(e)}"
@@ -95,13 +123,12 @@ def download():
             error_message = "Access denied. The video may be private or restricted."
         elif "Video unavailable" in str(e):
             error_message = "Video not found or unavailable."
+        elif "Private video" in str(e):
+            error_message = "This video is private and cannot be downloaded."
+        elif "Unsupported URL" in str(e):
+            error_message = "Unsupported URL. Please check the link and try again."
         
-        return render_template('index.html', 
-                             message=error_message, 
-                             error=True)
-
-# For Vercel
-app = app
+        return jsonify({'error': error_message}), 500
 
 if __name__ == "__main__":
     print("\n" + "="*50)
