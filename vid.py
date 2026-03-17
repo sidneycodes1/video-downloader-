@@ -59,30 +59,45 @@ def download_video():
         
         # Configure yt-dlp options with better compatibility
         ydl_opts = {
-            'format': 'best[ext=mp4]/best',
-            'outtmpl': os.path.join(downloads_path, '%(title)s.%(ext)s'),
+            'format': 'bestvideo+bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'nocheckcertificate': True,
             'geo_bypass': True,
             'socket_timeout': 30,
+            'retries': 10,
+            'cookiesfrombrowser': ('chrome',),  # Use Chrome cookies for restricted content
         }
         
+        # Global output template
+        ydl_opts['outtmpl'] = os.path.join(downloads_path, '%(title)s.%(ext)s')
+        
+        # Browser-like headers for all platforms
+        common_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+        }
+
         # Platform-specific configurations
         if platform == 'youtube':
             ydl_opts['extractor_args'] = {'youtube': {'player_client': ['android', 'web']}}
+            ydl_opts['http_headers'] = common_headers
         elif platform == 'instagram':
-            ydl_opts['http_headers'] = {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15'
-            }
+            ydl_opts['http_headers'] = common_headers
+            ydl_opts['http_headers']['Referer'] = 'https://www.instagram.com/'
         elif platform == 'tiktok':
-            ydl_opts['http_headers'] = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+            ydl_opts['http_headers'] = common_headers
+            ydl_opts['http_headers']['Referer'] = 'https://www.tiktok.com/'
         elif platform == 'facebook':
-            ydl_opts['format'] = 'best'
+            ydl_opts['http_headers'] = common_headers
+            ydl_opts['http_headers']['Referer'] = 'https://www.facebook.com/'
         elif platform == 'twitter':
-            ydl_opts['format'] = 'best'
+            ydl_opts['http_headers'] = common_headers
+            ydl_opts['http_headers']['Referer'] = 'https://twitter.com/'
         
         # Download the video
         print(f"Downloading from {platform}: {url}")
