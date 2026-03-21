@@ -30,4 +30,6 @@ Thumbs.db
 
 # Downloads folder (if you create one)
 downloads/
+.download_tmp/
+.download_tmp2/
 

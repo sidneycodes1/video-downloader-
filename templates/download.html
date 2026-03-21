@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <title>download page</title>
 </head>
 <body>
@@ -25,17 +25,30 @@
 
         <!-- Input and Download Button -->
         <div class="input-section">
-            <input 
-                type="text" 
-                class="input-box" 
-                id="videoLink" 
+            <input
+                type="text"
+                class="input-box"
+                id="videoLink"
                 placeholder="@paste link here"
             >
-            <div class="download-button" onclick="downloadVideo()">
+            <div class="download-button" id="downloadButton" onclick="downloadVideo()" title="Get available quality options">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                 </svg>
             </div>
+        </div>
+
+        <div id="formatSection" class="format-section" style="display: none;">
+            <p class="format-title">Choose quality to start download</p>
+            <div id="formatOptions" class="format-options"></div>
+        </div>
+
+        <div id="progressSection" class="progress-section" style="display: none;">
+            <div id="progressLabel" class="progress-label">Preparing download...</div>
+            <div class="progress-track">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div id="progressPercent" class="progress-percent">0%</div>
         </div>
 
         <!-- Error Message Display -->
@@ -52,21 +65,21 @@
                     <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
                 </svg>
             </a>
-            
+
             <!-- Facebook -->
             <a href="https://www.facebook.com/share/1EppFN2QxE/" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
             </a>
-            
+
             <!-- X (Twitter) -->
             <a href="https://x.com/Sidney_codes?t=ckY9yqdk7AXM9A-RFntvOw&s=09" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                 </svg>
             </a>
-            
+
             <!-- TikTok -->
             <a href="https://www.tiktok.com/@buildwith_sidney?_r=1&_t=ZM-922PiuW9qrj" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -77,91 +90,98 @@
     </footer>
 
     <script>
+        const API_DOWNLOAD_URL = '{{ url_for("download_video") }}';
+        const STATUS_URL_TEMPLATE = '{{ url_for("download_status", job_id="__JOB_ID__") }}';
+
         /**
          * Platform icon SVG templates
          * These match the icons from the landing page
          */
         const platformIcons = {
-            'Instagram': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            youtube: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/>
+            </svg>`,
+            YouTube: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/>
+            </svg>`,
+            Instagram: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
             </svg>`,
-            
-            'Facebook': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            Facebook: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
             </svg>`,
-            
-            'TikTok': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            TikTok: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
             </svg>`,
-            
-            'X': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            X: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>`
+            </svg>`,
         };
 
-        /**
-         * Load and display the selected platform icon
-         * Called when the page loads
-         */
+        let isBusy = false;
+        let statusTimeoutId = null;
+        let progressPollIntervalId = null;
+        let selectedFormats = [];
+
         function loadPlatformIcon() {
-            // Step 1: Retrieve the selected platform from localStorage
-            const selectedPlatform = localStorage.getItem('selectedPlatform');
-            
-            // Step 2: Get the platform circle element
+            const selectedPlatform = localStorage.getItem('selectedPlatform') || 'youtube';
             const platformCircle = document.getElementById('platformCircle');
-            
-            // Step 3: Check if a valid platform is found
+
             if (selectedPlatform && platformIcons[selectedPlatform]) {
-                // If valid platform exists, inject the corresponding icon
                 platformCircle.innerHTML = platformIcons[selectedPlatform];
-                
-                // Log for debugging
-                console.log('Platform loaded:', selectedPlatform);
             } else {
-                // If no platform or invalid platform, leave circle empty
-                // Circle will show default turquoise color (#6af0f0) from CSS
-                platformCircle.innerHTML = '';
-                
-                // Log for debugging
-                console.log('No platform selected, showing default circle');
+                platformCircle.innerHTML = platformIcons.youtube;
             }
         }
 
-        /**
-         * Handle back button click
-         * Navigate back to the landing page
-         */
         function goBack() {
-            // Navigate back to index.html
             window.location.href = '{{ url_for("home") }}';
         }
 
-        /**
-         * Show error message to user
-         */
-        function showError(message) {
-            const errorDiv = document.getElementById('errorMessage');
-            if (errorDiv) {
-                errorDiv.textContent = message;
-                errorDiv.style.display = 'block';
-                setTimeout(() => {
-                    errorDiv.style.display = 'none';
-                }, 5000);
-            } else {
-                alert(message);
+        function showStatus(message, isError = true) {
+            const statusDiv = document.getElementById('errorMessage');
+            if (!statusDiv) {
+                if (isError) {
+                    alert(message);
+                }
+                return;
             }
+
+            if (statusTimeoutId) {
+                clearTimeout(statusTimeoutId);
+            }
+
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            statusDiv.classList.toggle('success', !isError);
+
+            statusTimeoutId = setTimeout(() => {
+                statusDiv.style.display = 'none';
+                statusDiv.classList.remove('success');
+            }, isError ? 6000 : 3000);
         }
 
-        /**
-         * Show loading state
-         */
-        function setLoading(isLoading) {
-            const downloadButton = document.querySelector('.download-button');
+        function showError(message) {
+            showStatus(message, true);
+        }
+
+        function showSuccess(message) {
+            showStatus(message, false);
+        }
+
+        function setLoading(loadingState) {
+            isBusy = loadingState;
+
+            const downloadButton = document.getElementById('downloadButton');
             const linkInput = document.getElementById('videoLink');
-            
-            if (isLoading) {
+            if (!downloadButton || !linkInput) {
+                return;
+            }
+
+            if (loadingState) {
                 downloadButton.style.opacity = '0.6';
                 downloadButton.style.cursor = 'not-allowed';
+                downloadButton.style.pointerEvents = 'none';
                 linkInput.disabled = true;
                 downloadButton.innerHTML = `
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="spinner">
@@ -171,116 +191,354 @@
                         </circle>
                     </svg>
                 `;
-            } else {
-                downloadButton.style.opacity = '1';
-                downloadButton.style.cursor = 'pointer';
-                linkInput.disabled = false;
-                downloadButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-                    </svg>
-                `;
+                return;
+            }
+
+            downloadButton.style.opacity = '1';
+            downloadButton.style.cursor = 'pointer';
+            downloadButton.style.pointerEvents = 'auto';
+            linkInput.disabled = false;
+            downloadButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+            `;
+        }
+
+        function clearFormatOptions() {
+            selectedFormats = [];
+            const formatSection = document.getElementById('formatSection');
+            const formatOptions = document.getElementById('formatOptions');
+            if (formatOptions) {
+                formatOptions.innerHTML = '';
+            }
+            if (formatSection) {
+                formatSection.style.display = 'none';
             }
         }
 
-        /**
-         * Handle download button click
-         * Validate input and process download request
-         */
-        async function downloadVideo() {
-            // Get the input field and its value
+        function clearProgress() {
+            const section = document.getElementById('progressSection');
+            const fill = document.getElementById('progressFill');
+            const percent = document.getElementById('progressPercent');
+            const label = document.getElementById('progressLabel');
+
+            if (section) {
+                section.style.display = 'none';
+            }
+            if (fill) {
+                fill.style.width = '0%';
+            }
+            if (percent) {
+                percent.textContent = '0%';
+            }
+            if (label) {
+                label.textContent = 'Preparing download...';
+            }
+        }
+
+        function updateProgress(percentValue, labelText) {
+            const section = document.getElementById('progressSection');
+            const fill = document.getElementById('progressFill');
+            const percent = document.getElementById('progressPercent');
+            const label = document.getElementById('progressLabel');
+
+            const normalizedPercent = Number.isFinite(percentValue)
+                ? Math.max(0, Math.min(100, percentValue))
+                : null;
+
+            if (section) {
+                section.style.display = 'block';
+            }
+            if (fill) {
+                fill.style.width = `${normalizedPercent === null ? 0 : normalizedPercent}%`;
+            }
+            if (percent) {
+                percent.textContent = normalizedPercent === null ? '--%' : `${Math.round(normalizedPercent)}%`;
+            }
+            if (label && labelText) {
+                label.textContent = labelText;
+            }
+        }
+
+        function renderFormatOptions(formats) {
+            const formatSection = document.getElementById('formatSection');
+            const formatOptions = document.getElementById('formatOptions');
+            if (!formatSection || !formatOptions) {
+                return;
+            }
+
+            formatOptions.innerHTML = '';
+            selectedFormats = formats.slice();
+
+            formats.forEach((item) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'format-button';
+
+                const extension = item.ext ? item.ext.toUpperCase() : 'N/A';
+                const fileSizeLabel = item.filesize ? ` • ${item.filesize}` : '';
+                button.textContent = `${item.resolution} • ${extension}${fileSizeLabel}`;
+
+                button.addEventListener('click', () => startDownload(item.format_id));
+                formatOptions.appendChild(button);
+            });
+
+            formatSection.style.display = formats.length ? 'block' : 'none';
+        }
+
+        function getFilenameFromDisposition(contentDisposition) {
+            if (!contentDisposition) {
+                return 'video.mp4';
+            }
+
+            const utf8NameMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8NameMatch && utf8NameMatch[1]) {
+                try {
+                    return decodeURIComponent(utf8NameMatch[1].trim());
+                } catch (error) {
+                    console.warn('Unable to decode filename* value:', error);
+                }
+            }
+
+            const quotedNameMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+            if (quotedNameMatch && quotedNameMatch[1]) {
+                return quotedNameMatch[1].trim();
+            }
+
+            return 'video.mp4';
+        }
+
+        async function extractErrorMessage(response) {
+            const fallback = 'Download failed. Please try again.';
+            const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+
+            if (contentType.includes('application/json')) {
+                try {
+                    const data = await response.json();
+                    if (data && typeof data.error === 'string' && data.error.trim() !== '') {
+                        return data.error;
+                    }
+                } catch (error) {
+                    console.warn('Could not parse JSON error payload:', error);
+                }
+                return fallback;
+            }
+
+            try {
+                const text = await response.text();
+                if (text && !text.trim().startsWith('<')) {
+                    return text.trim();
+                }
+            } catch (error) {
+                console.warn('Could not parse text error payload:', error);
+            }
+            return fallback;
+        }
+
+        function getSelectedPlatform() {
+            return localStorage.getItem('selectedPlatform') || 'youtube';
+        }
+
+        function validateLink() {
             const linkInput = document.getElementById('videoLink');
             const link = linkInput.value.trim();
-            
-            // Validate that a link has been entered
+
             if (link === '') {
                 showError('Please paste a video link.');
-                return;
+                return null;
             }
 
-            // Basic URL validation
             if (!link.startsWith('http://') && !link.startsWith('https://')) {
                 showError('Please enter a valid URL starting with http:// or https://');
+                return null;
+            }
+
+            return link;
+        }
+
+        async function downloadVideo() {
+            if (isBusy) {
                 return;
             }
 
-            // Get selected platform from localStorage
-            const selectedPlatform = localStorage.getItem('selectedPlatform') || 'youtube';
-            
-            // Set loading state
+            const link = validateLink();
+            if (!link) {
+                return;
+            }
+
             setLoading(true);
-            
+            clearProgress();
+
             try {
-                // Make API request to backend
-                const response = await fetch('{{ url_for("download_video") }}', {
+                const response = await fetch(API_DOWNLOAD_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
+                        mode: 'formats',
                         url: link,
-                        platform: selectedPlatform
-                    })
+                        platform: getSelectedPlatform(),
+                        download_type: 'video',
+                        quality: 'best',
+                    }),
                 });
 
-                if (response.ok) {
-                    // Get the blob from response
-                    const blob = await response.blob();
-                    
-                    // Create download link
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    
-                    // Get filename from Content-Disposition header or use default
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = 'video.mp4';
-                    if (contentDisposition) {
-                        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
-                        if (filenameMatch) {
-                            filename = filenameMatch[1];
-                        }
-                    }
-                    
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                    
-                    // Clear input after successful download
-                    linkInput.value = '';
-                } else {
-                    // Handle error response
-                    const errorData = await response.json();
-                    showError(errorData.error || 'Download failed. Please try again.');
+                if (!response.ok) {
+                    showError(await extractErrorMessage(response));
+                    clearFormatOptions();
+                    return;
                 }
+
+                const payload = await response.json();
+                if (!payload || !Array.isArray(payload.formats) || payload.formats.length === 0) {
+                    clearFormatOptions();
+                    showError('No downloadable quality options found for this link.');
+                    return;
+                }
+
+                renderFormatOptions(payload.formats);
+                showSuccess('Choose a quality option to start your download.');
             } catch (error) {
-                console.error('Download error:', error);
+                console.error('Format lookup error:', error);
                 showError('Network error. Please check your connection and try again.');
             } finally {
-                // Reset loading state
                 setLoading(false);
             }
         }
 
-        /**
-         * Add Enter key support for the input field
-         * Pressing Enter will trigger the download function
-         */
+        function buildStatusUrl(jobId) {
+            return STATUS_URL_TEMPLATE.replace('__JOB_ID__', encodeURIComponent(jobId));
+        }
+
+        function stopProgressPolling() {
+            if (progressPollIntervalId) {
+                clearInterval(progressPollIntervalId);
+                progressPollIntervalId = null;
+            }
+        }
+
+        function startProgressPolling(jobId) {
+            stopProgressPolling();
+
+            progressPollIntervalId = setInterval(async () => {
+                try {
+                    const response = await fetch(buildStatusUrl(jobId), { method: 'GET' });
+                    if (!response.ok) {
+                        return;
+                    }
+
+                    const payload = await response.json();
+                    const nextPercent = Number(payload.percent);
+                    const nextMessage = typeof payload.message === 'string' ? payload.message : 'Downloading...';
+
+                    updateProgress(Number.isFinite(nextPercent) ? nextPercent : null, nextMessage);
+
+                    if (payload.status === 'finished' || payload.status === 'error') {
+                        stopProgressPolling();
+                    }
+                } catch (_error) {
+                    // Polling failures are temporary and should not stop the active download.
+                }
+            }, 800);
+        }
+
+        function createJobId() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID().replace(/-/g, '');
+            }
+            return `job_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        }
+
+        async function startDownload(formatId) {
+            if (isBusy) {
+                return;
+            }
+
+            const link = validateLink();
+            if (!link) {
+                return;
+            }
+
+            if (!selectedFormats.some((item) => item.format_id === formatId)) {
+                showError('Invalid format selected. Please refresh quality options.');
+                return;
+            }
+
+            const jobId = createJobId();
+
+            setLoading(true);
+            updateProgress(0, 'Starting download...');
+            startProgressPolling(jobId);
+
+            try {
+                const response = await fetch(API_DOWNLOAD_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        mode: 'download',
+                        url: link,
+                        platform: getSelectedPlatform(),
+                        download_type: 'video',
+                        format_id: formatId,
+                        job_id: jobId,
+                    }),
+                });
+
+                if (!response.ok) {
+                    showError(await extractErrorMessage(response));
+                    return;
+                }
+
+                const blob = await response.blob();
+                if (!blob || blob.size === 0) {
+                    showError('Download failed: empty file received.');
+                    return;
+                }
+
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const anchor = document.createElement('a');
+                anchor.href = downloadUrl;
+                anchor.download = getFilenameFromDisposition(response.headers.get('Content-Disposition'));
+                document.body.appendChild(anchor);
+                anchor.click();
+                document.body.removeChild(anchor);
+                window.URL.revokeObjectURL(downloadUrl);
+
+                updateProgress(100, 'Download complete.');
+                showSuccess('Download started successfully.');
+            } catch (error) {
+                console.error('Download error:', error);
+                showError('Network error. Please check your connection and try again.');
+            } finally {
+                setLoading(false);
+                setTimeout(() => {
+                    stopProgressPolling();
+                }, 600);
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
-            // Load the platform icon when page loads
             loadPlatformIcon();
-            
-            // Add Enter key listener to input field
+            clearFormatOptions();
+            clearProgress();
+
             const inputField = document.getElementById('videoLink');
-            inputField.addEventListener('keypress', function(event) {
+            inputField.addEventListener('keydown', function(event) {
                 if (event.key === 'Enter' && !inputField.disabled) {
+                    event.preventDefault();
                     downloadVideo();
                 }
             });
 
-            // Focus on input field when page loads
+            inputField.addEventListener('input', function() {
+                clearFormatOptions();
+                clearProgress();
+            });
+
             inputField.focus();
         });
     </script>

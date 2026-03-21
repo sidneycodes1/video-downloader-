@@ -1,147 +1,147 @@
-# Video Downloader - Installation & Usage Guide
+# Multi-Platform Video Downloader
 
-A multi-platform video downloader supporting YouTube, Instagram, Facebook, TikTok, and Twitter/X.
+A Flask web app that accepts a supported video URL and returns a downloadable media file.
 
-## 📋 Prerequisites
+## Supported Platforms
 
-- Python 3.7 or higher (you have Python 3.14.0 ✅)
-- pip (Python package installer)
+- YouTube
+- TikTok
+- Instagram
+- Facebook
+- X (Twitter)
 
-## 🚀 Installation Steps
+## What This Version Fixes
 
-### Option 1: Quick Install (Recommended for Getting Started)
+- Stable end-to-end flow from input URL to downloadable response
+- Strict URL validation and platform allowlisting
+- Better error handling with clear API messages
+- Request rate limiting to reduce abuse
+- Safer temporary-file lifecycle and cleanup after response close
+- Frontend download UX improvements (loading lock, robust error parsing, success feedback)
 
-1. **Open PowerShell or Command Prompt** in the project directory
+## Requirements
 
-2. **Install dependencies:**
-   ```bash
-   pip install Flask==3.0.0 flask-cors==4.0.0 yt-dlp
-   ```
-   
-   Or using requirements.txt:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- Python 3.10+
+- `pip`
 
-### Option 2: Using Virtual Environment (Best Practice)
+## Install
 
-1. **Create a virtual environment:**
-   ```bash
-   python -m venv venv
-   ```
-
-2. **Activate the virtual environment:**
-   
-   **On Windows (PowerShell):**
-   ```powershell
-   .\venv\Scripts\Activate.ps1
-   ```
-   
-   **On Windows (Command Prompt):**
-   ```cmd
-   venv\Scripts\activate.bat
-   ```
-   
-   **On Mac/Linux:**
-   ```bash
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## ▶️ Running the Application
-
-1. **Make sure you're in the project directory:**
-   ```bash
-   cd "C:\Users\USER\Documents\MY CODES\vid download"
-   ```
-
-2. **Run the Flask application:**
-   ```bash
-   python vid.py
-   ```
-
-3. **Open your web browser** and navigate to:
-   - **Main URL:** http://127.0.0.1:5000
-   - **Alternative:** http://localhost:5000
-
-4. **You should see:**
-   - A landing page with platform selection (Instagram, Facebook, TikTok, X)
-   - Click on a platform to go to the download page
-   - Paste a video URL and click download
-
-## 🛑 Stopping the Application
-
-Press `CTRL + C` in the terminal to stop the server.
-
-## 📝 Usage Instructions
-
-1. **Select a Platform:**
-   - On the landing page, click on one of the platform icons (Instagram, Facebook, TikTok, or X)
-
-2. **Download a Video:**
-   - Paste the video URL in the input field
-   - Click the download button or press Enter
-   - Wait for the download to complete (you'll see a loading spinner)
-   - The video will automatically download to your default downloads folder
-
-## ⚠️ Troubleshooting
-
-### Issue: "ModuleNotFoundError: No module named 'flask'"
-**Solution:** Install Flask and dependencies:
 ```bash
-pip install Flask flask-cors yt-dlp
+pip install -r requirements.txt
 ```
 
-### Issue: "Port already in use"
-**Solution:** Either:
-- Stop the other application using port 5000, or
-- Change the port in `vid.py` (line 124): `app.run(debug=True, host='0.0.0.0', port=5001)`
+## Run
 
-### Issue: PowerShell execution policy error
-**Solution:** Run this command in PowerShell as Administrator:
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```bash
+python vid.py
 ```
 
-### Issue: Download fails
-**Possible causes:**
-- Invalid or unsupported video URL
-- Video is private or restricted
-- Network connection issues
-- Platform-specific restrictions
+Then open:
 
-## 📦 Project Structure
+- http://127.0.0.1:5000
 
+## API
+
+### `POST /api/download`
+
+This endpoint now works in two steps:
+
+1) **Format discovery** (`mode: "formats"`): inspects the URL with `yt-dlp` (`download=false`) and returns quality options.
+2) **Download** (`mode: "download"`): downloads the selected `format_id`.
+
+Format discovery request:
+
+```json
+{
+  "mode": "formats",
+  "url": "https://www.youtube.com/watch?v=...",
+  "platform": "YouTube",
+  "download_type": "video",
+  "quality": "best"
+}
 ```
-vid download/
-├── vid.py                 # Main Flask application
-├── requirements.txt       # Python dependencies
-├── templates/
-│   ├── index.html        # Landing page
-│   └── download.html     # Download page
-├── static/
-│   └── css/
-│       └── style.css     # Stylesheet
-└── README.md            # This file
+
+Format discovery response:
+
+```json
+{
+  "title": "Example Video",
+  "platform": "youtube",
+  "download_type": "video",
+  "formats": [
+    {
+      "format_id": "22",
+      "resolution": "720p",
+      "ext": "mp4",
+      "filesize": "7.0 MB",
+      "filesize_bytes": 7000000
+    }
+  ]
+}
 ```
 
-## 🌐 Supported Platforms
+Download request:
 
-- ✅ YouTube
-- ✅ Instagram
-- ✅ Facebook
-- ✅ TikTok
-- ✅ Twitter/X
+```json
+{
+  "mode": "download",
+  "url": "https://www.youtube.com/watch?v=...",
+  "platform": "YouTube",
+  "download_type": "video",
+  "format_id": "22",
+  "job_id": "job_123"
+}
+```
 
-## 📄 License
+Download success:
 
-This project is for educational purposes.
+- Returns file stream with `Content-Disposition: attachment`.
 
----
+Notes:
 
-**Need Help?** Check the error messages in the terminal for detailed information about any issues.
+- `platform` is optional as a hint. Backend auto-detects platform from URL.
+- `download_type` supports `video` or `audio`.
+- `quality` supports `best`, `1080`, `720`, `480`, `360`.
+- `job_id` is optional; if omitted, backend generates one for download mode.
 
+### `GET /api/health`
+
+Health check endpoint.
+
+### `GET /api/download/status/<job_id>`
+
+Returns in-progress download status updates (percentage + message) for frontend polling.
+
+## Security and Stability Controls
+
+- URL scheme and hostname validation (`http`/`https` only)
+- Local/private network URL rejection
+- Platform domain allowlist
+- Rate limiting by client IP (5 successful downloads per minute on `POST /api/download`)
+- Request payload size limit
+- Configurable CORS for `/api/*`
+
+## Configuration (Environment Variables)
+
+- `PORT` (default: `5000`)
+- `FLASK_DEBUG` (`1` or `0`)
+- `CORS_ORIGINS` (default: `*`, comma-separated for restricted origins)
+- `REDIS_URL` (optional; if unset, limiter falls back to `memory://`)
+- `DOWNLOAD_WORK_DIR` (default: `./.download_tmp`)
+- `DOWNLOAD_SOCKET_TIMEOUT` (default: `35`)
+- `DOWNLOAD_RETRIES` (default: `3`)
+- `DOWNLOAD_FRAGMENT_RETRIES` (default: `3`)
+- `DOWNLOAD_PROGRESS_TTL_SECONDS` (default: `1800`)
+- `DOWNLOAD_PROGRESS_CLEANUP_INTERVAL_SECONDS` (default: `120`)
+- `YTDLP_COOKIES_BROWSER` (optional)
+- `YTDLP_COOKIES_FILE` (optional)
+
+## Tests
+
+Run backend tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests mock `yt_dlp` so they run without external network access.
