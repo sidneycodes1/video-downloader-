@@ -7,8 +7,11 @@ import vid
 
 
 class FakeYoutubeDL:
+    last_options = None
+
     def __init__(self, options):
         self.options = options
+        FakeYoutubeDL.last_options = options
 
     def __enter__(self):
         return self
@@ -21,6 +24,9 @@ class FakeYoutubeDL:
             return {
                 "id": "unit_test_id",
                 "title": "My Test Video",
+                "thumbnail": "https://example.com/thumb.jpg",
+                "duration": 187,
+                "uploader": "Uploader Unit",
                 "formats": [
                     {
                         "format_id": "22",
@@ -35,28 +41,37 @@ class FakeYoutubeDL:
                         "ext": "mp4",
                         "height": 360,
                         "vcodec": "avc1.42001E",
-                        "acodec": "mp4a.40.2",
+                        "acodec": "none",
                         "filesize": 2_500_000,
                     },
                     {
-                        "format_id": "137",
-                        "ext": "mp4",
-                        "height": 1080,
-                        "vcodec": "avc1.640028",
-                        "acodec": "none",
-                        "filesize": 9_000_000,
+                        "format_id": "171",
+                        "ext": "webm",
+                        "height": None,
+                        "vcodec": "none",
+                        "acodec": "vorbis",
+                        "filesize": 1_100_000,
+                    },
+                    {
+                        "format_id": "badext",
+                        "ext": "flv",
+                        "height": 720,
+                        "vcodec": "avc1",
+                        "acodec": "mp4a",
+                        "filesize": 4_000_000,
                     },
                 ],
             }
 
         output_template = self.options["outtmpl"]
-        file_path = Path(output_template.replace("%(id)s", "unit_test_id").replace("%(ext)s", "mp4"))
+        ext = "mp3" if self.options.get("postprocessors") else "mp4"
+        file_path = Path(output_template.replace("%(id)s", "unit_test_id").replace("%(ext)s", ext))
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_bytes(b"fake-video-content")
         return {
             "id": "unit_test_id",
             "title": "My Test Video",
-            "ext": "mp4",
+            "ext": ext,
         }
 
 
@@ -77,7 +92,9 @@ class VideoDownloaderApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["status"], "ok")
-        self.assertIn("youtube", payload["supported_platforms"])
+        self.assertIn("/api/download", payload["endpoints"])
+        self.assertIn("/api/metadata", payload["endpoints"])
+        self.assertIn("/history", payload["endpoints"])
 
     def test_rejects_non_json_payload(self):
         response = self.client.post("/api/download", data="url=https://youtube.com/watch?v=abc")
@@ -108,55 +125,51 @@ class VideoDownloaderApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("unsupported platform", payload["error"].lower())
 
-    def test_formats_probe_returns_quality_options(self):
+    def test_metadata_returns_expected_fields(self):
         with patch("vid.yt_dlp.YoutubeDL", FakeYoutubeDL):
             response = self.client.post(
-                "/api/download",
-                json={
-                    "mode": "formats",
-                    "url": "https://www.youtube.com/watch?v=abc123",
-                    "platform": "YouTube",
-                    "download_type": "video",
-                    "quality": "best",
-                },
+                "/api/metadata",
+                json={"url": "https://www.youtube.com/watch?v=abc123"},
                 headers=self.headers,
             )
 
         payload = response.get_json()
-
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["title"], "My Test Video")
+        self.assertEqual(payload["thumbnail"], "https://example.com/thumb.jpg")
         self.assertIn("formats", payload)
-        self.assertGreaterEqual(len(payload["formats"]), 2)
-        self.assertEqual(payload["formats"][0]["format_id"], "22")
-        self.assertEqual(payload["formats"][0]["resolution"], "720p")
+        self.assertTrue(any(item["format_id"] == "audio-only" for item in payload["formats"]))
+        self.assertTrue(any(item["format_id"] == "22" for item in payload["formats"]))
 
-    def test_download_requires_format_id_in_download_mode(self):
+    def test_metadata_rejects_private_ip(self):
         response = self.client.post(
-            "/api/download",
-            json={
-                "mode": "download",
-                "url": "https://www.youtube.com/watch?v=abc123",
-                "platform": "YouTube",
-                "download_type": "video",
-            },
+            "/api/metadata",
+            json={"url": "https://127.0.0.1/video"},
             headers=self.headers,
         )
-
         payload = response.get_json()
         self.assertEqual(response.status_code, 400)
-        self.assertIn("format_id", payload["error"])
+        self.assertIn("local", payload["error"].lower())
+
+    def test_metadata_rejects_unsupported_domain(self):
+        response = self.client.post(
+            "/api/metadata",
+            json={"url": "https://example.com/video"},
+            headers=self.headers,
+        )
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("unsupported platform", payload["error"].lower())
 
     def test_download_returns_file(self):
         with patch("vid.yt_dlp.YoutubeDL", FakeYoutubeDL):
             response = self.client.post(
                 "/api/download",
                 json={
-                    "mode": "download",
                     "url": "https://www.youtube.com/watch?v=abc123",
                     "platform": "YouTube",
                     "download_type": "video",
-                    "format_id": "22",
-                    "job_id": "job_unittest",
+                    "quality": "best",
                 },
                 headers=self.headers,
             )
@@ -166,23 +179,40 @@ class VideoDownloaderApiTests(unittest.TestCase):
             self.assertEqual(response.data, b"fake-video-content")
             self.assertIn("attachment", response.headers.get("Content-Disposition", ""))
             self.assertIn("My Test Video.mp4", response.headers.get("Content-Disposition", ""))
-            self.assertEqual(response.headers.get("X-Download-Job-Id"), "job_unittest")
+        finally:
+            response.close()
+
+    def test_download_with_format_id_passes_to_yt_dlp(self):
+        with patch("vid.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            response = self.client.post(
+                "/api/download",
+                json={
+                    "url": "https://www.youtube.com/watch?v=abc123",
+                    "platform": "YouTube",
+                    "download_type": "video",
+                    "quality": "best",
+                    "format_id": "22",
+                },
+                headers=self.headers,
+            )
+
+        try:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(FakeYoutubeDL.last_options["format"], "22")
         finally:
             response.close()
 
     def test_rate_limit_blocks_sixth_successful_download(self):
         responses = []
         with patch("vid.yt_dlp.YoutubeDL", FakeYoutubeDL):
-            for index in range(6):
+            for _ in range(6):
                 response = self.client.post(
                     "/api/download",
                     json={
-                        "mode": "download",
                         "url": "https://www.youtube.com/watch?v=abc123",
                         "platform": "YouTube",
                         "download_type": "video",
-                        "format_id": "22",
-                        "job_id": f"job_rate_{index}",
+                        "quality": "best",
                     },
                     headers=self.headers,
                 )
@@ -193,7 +223,8 @@ class VideoDownloaderApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
             self.assertEqual(responses[5].status_code, 429)
             payload = responses[5].get_json()
-            self.assertIn("too many successful downloads", payload["error"].lower())
+            self.assertEqual(payload["error"], "Rate limit exceeded")
+            self.assertIn("retry_after", payload)
         finally:
             for response in responses:
                 response.close()

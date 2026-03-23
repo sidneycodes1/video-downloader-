@@ -7,80 +7,89 @@
     <title>download page</title>
 </head>
 <body>
-    <!-- Main Blue Content Area -->
     <div class="main-content">
-        <!-- Back Button -->
-        <div class="back-button-container">
-            <div class="back-button" onclick="goBack()">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                    <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
-                </svg>
+        <div class="download-top-row">
+            <div class="back-button-container">
+                <div class="back-button" onclick="goBack()">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                    </svg>
+                </div>
             </div>
+            <a href="{{ url_for('history_page') }}" class="nav-link nav-link-light">History</a>
         </div>
 
-        <!-- Dynamic Platform Circle -->
-        <div class="platform-circle" id="platformCircle">
-            <!-- Icon will be injected here by JavaScript -->
-        </div>
+        <div class="platform-circle" id="platformCircle"></div>
 
-        <!-- Input and Download Button -->
         <div class="input-section">
-            <input
-                type="text"
-                class="input-box"
-                id="videoLink"
-                placeholder="@paste link here"
-            >
-            <div class="download-button" id="downloadButton" onclick="downloadVideo()" title="Get available quality options">
+            <div class="input-wrapper">
+                <input
+                    type="text"
+                    class="input-box"
+                    id="videoLink"
+                    placeholder="@paste link here"
+                >
+                <div id="platformBadge" class="platform-badge is-hidden"></div>
+            </div>
+            <button type="button" class="download-button" id="downloadButton" onclick="downloadVideo()">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                 </svg>
+            </button>
+        </div>
+
+        <div id="metadataSkeleton" class="preview-card preview-skeleton is-hidden">
+            <div class="preview-thumb-skeleton"></div>
+            <div class="preview-meta-skeleton">
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line short"></div>
+                <div class="skeleton-line tiny"></div>
             </div>
         </div>
 
-        <div id="formatSection" class="format-section" style="display: none;">
-            <p class="format-title">Choose quality to start download</p>
-            <div id="formatOptions" class="format-options"></div>
+        <div id="previewCard" class="preview-card is-hidden">
+            <img id="previewThumbnail" class="preview-thumbnail" alt="Video thumbnail">
+            <div class="preview-meta">
+                <h3 id="previewTitle" class="preview-title"></h3>
+                <p id="previewUploader" class="preview-uploader"></p>
+                <p id="previewDuration" class="preview-duration"></p>
+            </div>
         </div>
 
-        <div id="progressSection" class="progress-section" style="display: none;">
-            <div id="progressLabel" class="progress-label">Preparing download...</div>
+        <div id="formatSection" class="format-selector-section is-hidden">
+            <label for="formatSelector" class="format-select-label">Quality and format</label>
+            <select id="formatSelector" class="format-select"></select>
+        </div>
+
+        <div id="progressSection" class="download-progress is-hidden">
+            <div id="progressStatus" class="progress-status">Preparing...</div>
             <div class="progress-track">
                 <div id="progressFill" class="progress-fill"></div>
             </div>
             <div id="progressPercent" class="progress-percent">0%</div>
         </div>
 
-        <!-- Error Message Display -->
-        <div id="errorMessage" class="error-message" style="display: none;"></div>
+        <div id="errorMessage" class="error-message is-hidden"></div>
     </div>
 
-    <!-- Footer -->
     <footer class="footer">
         <div class="footer-text">Connect with Us @Deep</div>
         <div class="footer-icons">
-            <!-- Instagram -->
             <a href="https://www.instagram.com/xxo_sidney?igsh=MXdnczBiaWNidHl4cQ==" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
                 </svg>
             </a>
-
-            <!-- Facebook -->
             <a href="https://www.facebook.com/share/1EppFN2QxE/" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
             </a>
-
-            <!-- X (Twitter) -->
             <a href="https://x.com/Sidney_codes?t=ckY9yqdk7AXM9A-RFntvOw&s=09" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                 </svg>
             </a>
-
-            <!-- TikTok -->
             <a href="https://www.tiktok.com/@buildwith_sidney?_r=1&_t=ZM-922PiuW9qrj" target="_blank" rel="noopener noreferrer" class="footer-icon-link">
                 <svg class="footer-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
@@ -91,200 +100,246 @@
 
     <script>
         const API_DOWNLOAD_URL = '{{ url_for("download_video") }}';
-        const STATUS_URL_TEMPLATE = '{{ url_for("download_status", job_id="__JOB_ID__") }}';
+        const API_METADATA_URL = '{{ url_for("video_metadata") }}';
 
-        /**
-         * Platform icon SVG templates
-         * These match the icons from the landing page
-         */
         const platformIcons = {
-            youtube: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/>
-            </svg>`,
-            YouTube: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/>
-            </svg>`,
-            Instagram: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-            </svg>`,
-            Facebook: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-            </svg>`,
-            TikTok: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
-            </svg>`,
-            X: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>`,
+            youtube: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/></svg>',
+            instagram: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>',
+            facebook: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>',
+            tiktok: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/></svg>',
+            twitter: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
         };
 
-        let isBusy = false;
+        const platformMatchers = [
+            { key: 'youtube', name: 'YouTube', domains: ['youtube.com', 'youtu.be', 'youtube-nocookie.com'] },
+            { key: 'instagram', name: 'Instagram', domains: ['instagram.com', 'instagr.am'] },
+            { key: 'facebook', name: 'Facebook', domains: ['facebook.com', 'fb.watch'] },
+            { key: 'tiktok', name: 'TikTok', domains: ['tiktok.com', 'douyin.com'] },
+            { key: 'twitter', name: 'X (Twitter)', domains: ['x.com', 'twitter.com', 't.co'] },
+        ];
+
+        let metadataDebounceId = null;
         let statusTimeoutId = null;
-        let progressPollIntervalId = null;
-        let selectedFormats = [];
-
-        function loadPlatformIcon() {
-            const selectedPlatform = localStorage.getItem('selectedPlatform') || 'youtube';
-            const platformCircle = document.getElementById('platformCircle');
-
-            if (selectedPlatform && platformIcons[selectedPlatform]) {
-                platformCircle.innerHTML = platformIcons[selectedPlatform];
-            } else {
-                platformCircle.innerHTML = platformIcons.youtube;
-            }
-        }
+        let retryCountdownId = null;
+        let progressIntervalId = null;
+        let isDownloading = false;
+        let activeMetadataRequest = 0;
+        let latestMetadata = null;
 
         function goBack() {
             window.location.href = '{{ url_for("home") }}';
         }
 
-        function showStatus(message, isError = true) {
-            const statusDiv = document.getElementById('errorMessage');
-            if (!statusDiv) {
-                if (isError) {
-                    alert(message);
-                }
-                return;
-            }
+        function getSelectedPlatform() {
+            return localStorage.getItem('selectedPlatform') || 'youtube';
+        }
 
+        function loadPlatformCircle() {
+            const selectedPlatform = getSelectedPlatform();
+            const circle = document.getElementById('platformCircle');
+            const icon = platformIcons[selectedPlatform] || platformIcons.youtube;
+            circle.innerHTML = icon;
+        }
+
+        function showStatus(message, isError = true, persist = false) {
+            const statusDiv = document.getElementById('errorMessage');
             if (statusTimeoutId) {
                 clearTimeout(statusTimeoutId);
+                statusTimeoutId = null;
             }
 
             statusDiv.textContent = message;
-            statusDiv.style.display = 'block';
+            statusDiv.classList.remove('is-hidden');
             statusDiv.classList.toggle('success', !isError);
 
-            statusTimeoutId = setTimeout(() => {
-                statusDiv.style.display = 'none';
-                statusDiv.classList.remove('success');
-            }, isError ? 6000 : 3000);
+            if (!persist) {
+                statusTimeoutId = setTimeout(() => {
+                    statusDiv.classList.add('is-hidden');
+                    statusDiv.classList.remove('success');
+                }, isError ? 6000 : 2500);
+            }
         }
 
-        function showError(message) {
-            showStatus(message, true);
+        function showError(message, persist = false) {
+            showStatus(message, true, persist);
         }
 
         function showSuccess(message) {
-            showStatus(message, false);
+            showStatus(message, false, false);
         }
 
-        function setLoading(loadingState) {
-            isBusy = loadingState;
+        function clearRetryCountdown() {
+            if (retryCountdownId) {
+                clearInterval(retryCountdownId);
+                retryCountdownId = null;
+            }
+        }
 
-            const downloadButton = document.getElementById('downloadButton');
-            const linkInput = document.getElementById('videoLink');
-            if (!downloadButton || !linkInput) {
+        function showRateLimitCountdown(retryAfterSeconds) {
+            clearRetryCountdown();
+            let remaining = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 60;
+            remaining = Math.max(1, Math.floor(remaining));
+            showError(`Too many requests. Please wait ${remaining} seconds.`, true);
+
+            retryCountdownId = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearRetryCountdown();
+                    showError('You can try again now.');
+                    return;
+                }
+                showError(`Too many requests. Please wait ${remaining} seconds.`, true);
+            }, 1000);
+        }
+
+        function setDownloadingState(active) {
+            isDownloading = active;
+            const button = document.getElementById('downloadButton');
+            const input = document.getElementById('videoLink');
+
+            button.disabled = active;
+            input.disabled = active;
+            button.style.opacity = active ? '0.6' : '1';
+            button.style.cursor = active ? 'not-allowed' : 'pointer';
+        }
+
+        function detectPlatformFromUrl(rawUrl) {
+            if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) {
+                return null;
+            }
+
+            try {
+                const parsed = new URL(rawUrl);
+                const hostname = parsed.hostname.toLowerCase();
+                for (const item of platformMatchers) {
+                    if (item.domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+                        return item;
+                    }
+                }
+            } catch (_error) {
+                return null;
+            }
+            return null;
+        }
+
+        function updatePlatformBadge(rawUrl) {
+            const badge = document.getElementById('platformBadge');
+            const detected = detectPlatformFromUrl(rawUrl);
+            if (!detected) {
+                badge.classList.add('is-hidden');
+                badge.innerHTML = '';
                 return;
             }
 
-            if (loadingState) {
-                downloadButton.style.opacity = '0.6';
-                downloadButton.style.cursor = 'not-allowed';
-                downloadButton.style.pointerEvents = 'none';
-                linkInput.disabled = true;
-                downloadButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="spinner">
-                        <circle cx="12" cy="12" r="10" stroke="white" stroke-width="4" fill="none" stroke-dasharray="31.416" stroke-dashoffset="31.416">
-                            <animate attributeName="stroke-dasharray" dur="2s" values="0 31.416;15.708 15.708;0 31.416;0 31.416" repeatCount="indefinite"/>
-                            <animate attributeName="stroke-dashoffset" dur="2s" values="0;-15.708;-31.416;-31.416" repeatCount="indefinite"/>
-                        </circle>
-                    </svg>
-                `;
-                return;
-            }
-
-            downloadButton.style.opacity = '1';
-            downloadButton.style.cursor = 'pointer';
-            downloadButton.style.pointerEvents = 'auto';
-            linkInput.disabled = false;
-            downloadButton.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-                </svg>
-            `;
+            badge.innerHTML = `${platformIcons[detected.key] || ''}<span>${detected.name} detected</span>`;
+            badge.classList.remove('is-hidden');
         }
 
-        function clearFormatOptions() {
-            selectedFormats = [];
+        function formatDuration(seconds) {
+            if (!Number.isFinite(seconds) || seconds < 0) {
+                return '--:--';
+            }
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function showMetadataSkeleton(visible) {
+            const skeleton = document.getElementById('metadataSkeleton');
+            skeleton.classList.toggle('is-hidden', !visible);
+        }
+
+        function hidePreviewAndFormats() {
+            latestMetadata = null;
+            document.getElementById('previewCard').classList.add('is-hidden');
+            document.getElementById('formatSection').classList.add('is-hidden');
+            document.getElementById('formatSelector').innerHTML = '';
+            showMetadataSkeleton(false);
+        }
+
+        function renderMetadata(metadata) {
+            const previewCard = document.getElementById('previewCard');
+            const thumbnail = document.getElementById('previewThumbnail');
+            const title = document.getElementById('previewTitle');
+            const uploader = document.getElementById('previewUploader');
+            const duration = document.getElementById('previewDuration');
+            const selector = document.getElementById('formatSelector');
             const formatSection = document.getElementById('formatSection');
-            const formatOptions = document.getElementById('formatOptions');
-            if (formatOptions) {
-                formatOptions.innerHTML = '';
-            }
-            if (formatSection) {
-                formatSection.style.display = 'none';
-            }
-        }
 
-        function clearProgress() {
-            const section = document.getElementById('progressSection');
-            const fill = document.getElementById('progressFill');
-            const percent = document.getElementById('progressPercent');
-            const label = document.getElementById('progressLabel');
+            thumbnail.src = metadata.thumbnail || '';
+            thumbnail.alt = metadata.title || 'Video thumbnail';
+            title.textContent = metadata.title || 'Untitled video';
+            uploader.textContent = metadata.uploader || 'Unknown uploader';
+            duration.textContent = `Duration: ${formatDuration(Number(metadata.duration))}`;
+            previewCard.classList.remove('is-hidden');
 
-            if (section) {
-                section.style.display = 'none';
-            }
-            if (fill) {
-                fill.style.width = '0%';
-            }
-            if (percent) {
-                percent.textContent = '0%';
-            }
-            if (label) {
-                label.textContent = 'Preparing download...';
-            }
-        }
-
-        function updateProgress(percentValue, labelText) {
-            const section = document.getElementById('progressSection');
-            const fill = document.getElementById('progressFill');
-            const percent = document.getElementById('progressPercent');
-            const label = document.getElementById('progressLabel');
-
-            const normalizedPercent = Number.isFinite(percentValue)
-                ? Math.max(0, Math.min(100, percentValue))
-                : null;
-
-            if (section) {
-                section.style.display = 'block';
-            }
-            if (fill) {
-                fill.style.width = `${normalizedPercent === null ? 0 : normalizedPercent}%`;
-            }
-            if (percent) {
-                percent.textContent = normalizedPercent === null ? '--%' : `${Math.round(normalizedPercent)}%`;
-            }
-            if (label && labelText) {
-                label.textContent = labelText;
-            }
-        }
-
-        function renderFormatOptions(formats) {
-            const formatSection = document.getElementById('formatSection');
-            const formatOptions = document.getElementById('formatOptions');
-            if (!formatSection || !formatOptions) {
-                return;
-            }
-
-            formatOptions.innerHTML = '';
-            selectedFormats = formats.slice();
-
+            selector.innerHTML = '';
+            const formats = Array.isArray(metadata.formats) ? metadata.formats : [];
             formats.forEach((item) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'format-button';
-
-                const extension = item.ext ? item.ext.toUpperCase() : 'N/A';
-                const fileSizeLabel = item.filesize ? ` • ${item.filesize}` : '';
-                button.textContent = `${item.resolution} • ${extension}${fileSizeLabel}`;
-
-                button.addEventListener('click', () => startDownload(item.format_id));
-                formatOptions.appendChild(button);
+                const option = document.createElement('option');
+                option.value = item.format_id || '';
+                option.textContent = item.label || `${item.ext || ''}`.trim();
+                selector.appendChild(option);
             });
 
-            formatSection.style.display = formats.length ? 'block' : 'none';
+            formatSection.classList.toggle('is-hidden', formats.length === 0);
+        }
+
+        async function fetchMetadata(urlValue) {
+            activeMetadataRequest += 1;
+            const requestId = activeMetadataRequest;
+
+            showMetadataSkeleton(true);
+            document.getElementById('previewCard').classList.add('is-hidden');
+            document.getElementById('formatSection').classList.add('is-hidden');
+
+            try {
+                const response = await fetch(API_METADATA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: urlValue }),
+                });
+
+                if (requestId !== activeMetadataRequest) {
+                    return;
+                }
+
+                if (!response.ok) {
+                    hidePreviewAndFormats();
+                    return;
+                }
+
+                const payload = await response.json();
+                if (!payload || typeof payload !== 'object') {
+                    hidePreviewAndFormats();
+                    return;
+                }
+
+                latestMetadata = payload;
+                showMetadataSkeleton(false);
+                renderMetadata(payload);
+            } catch (_error) {
+                if (requestId === activeMetadataRequest) {
+                    hidePreviewAndFormats();
+                }
+            }
+        }
+
+        function debounceMetadataFetch(rawUrl) {
+            if (metadataDebounceId) {
+                clearTimeout(metadataDebounceId);
+                metadataDebounceId = null;
+            }
+
+            const urlValue = rawUrl.trim();
+            if (!urlValue || (!urlValue.startsWith('http://') && !urlValue.startsWith('https://'))) {
+                hidePreviewAndFormats();
+                return;
+            }
+
+            metadataDebounceId = setTimeout(() => {
+                fetchMetadata(urlValue);
+            }, 600);
         }
 
         function getFilenameFromDisposition(contentDisposition) {
@@ -296,8 +351,8 @@
             if (utf8NameMatch && utf8NameMatch[1]) {
                 try {
                     return decodeURIComponent(utf8NameMatch[1].trim());
-                } catch (error) {
-                    console.warn('Unable to decode filename* value:', error);
+                } catch (_error) {
+                    // Ignore decode issues and fallback below.
                 }
             }
 
@@ -315,14 +370,13 @@
 
             if (contentType.includes('application/json')) {
                 try {
-                    const data = await response.json();
-                    if (data && typeof data.error === 'string' && data.error.trim() !== '') {
-                        return data.error;
+                    const payload = await response.json();
+                    if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+                        return payload.error.trim();
                     }
-                } catch (error) {
-                    console.warn('Could not parse JSON error payload:', error);
+                } catch (_error) {
+                    return fallback;
                 }
-                return fallback;
             }
 
             try {
@@ -330,216 +384,206 @@
                 if (text && !text.trim().startsWith('<')) {
                     return text.trim();
                 }
-            } catch (error) {
-                console.warn('Could not parse text error payload:', error);
+            } catch (_error) {
+                return fallback;
             }
             return fallback;
         }
 
-        function getSelectedPlatform() {
-            return localStorage.getItem('selectedPlatform') || 'youtube';
+        function setProgressState(statusLabel, percentValue, isError = false) {
+            const section = document.getElementById('progressSection');
+            const status = document.getElementById('progressStatus');
+            const fill = document.getElementById('progressFill');
+            const percent = document.getElementById('progressPercent');
+
+            section.classList.remove('is-hidden');
+            section.classList.toggle('error', isError);
+            status.textContent = statusLabel;
+            fill.style.width = `${Math.max(0, Math.min(100, percentValue))}%`;
+            percent.textContent = `${Math.max(0, Math.min(100, Math.round(percentValue)))}%`;
         }
 
-        function validateLink() {
-            const linkInput = document.getElementById('videoLink');
-            const link = linkInput.value.trim();
-
-            if (link === '') {
-                showError('Please paste a video link.');
-                return null;
+        function stopProgressSimulation() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
             }
+        }
 
-            if (!link.startsWith('http://') && !link.startsWith('https://')) {
-                showError('Please enter a valid URL starting with http:// or https://');
-                return null;
+        function startProgressSimulation() {
+            stopProgressSimulation();
+            const startedAt = Date.now();
+            setProgressState('Preparing...', 0, false);
+
+            progressIntervalId = setInterval(() => {
+                const elapsed = Date.now() - startedAt;
+                const clamped = Math.min(3000, elapsed);
+                const progress = (clamped / 3000) * 90;
+                const label = elapsed < 700 ? 'Preparing...' : 'Downloading...';
+                setProgressState(label, progress, false);
+                if (progress >= 90) {
+                    stopProgressSimulation();
+                }
+            }, 120);
+        }
+
+        function completeProgress(success) {
+            stopProgressSimulation();
+            if (success) {
+                setProgressState('Done!', 100, false);
+            } else {
+                setProgressState('Error', 100, true);
             }
+        }
 
-            return link;
+        function saveDownloadHistory(entry) {
+            try {
+                const raw = localStorage.getItem('download_history');
+                const parsed = raw ? JSON.parse(raw) : [];
+                const history = Array.isArray(parsed) ? parsed : [];
+                history.unshift(entry);
+                const trimmed = history.slice(0, 50);
+                localStorage.setItem('download_history', JSON.stringify(trimmed));
+            } catch (_error) {
+                // Ignore storage errors so download flow is unaffected.
+            }
         }
 
         async function downloadVideo() {
-            if (isBusy) {
+            if (isDownloading) {
                 return;
             }
 
-            const link = validateLink();
-            if (!link) {
+            clearRetryCountdown();
+            const input = document.getElementById('videoLink');
+            const urlValue = input.value.trim();
+            if (!urlValue) {
+                showError('Please paste a video link.');
+                return;
+            }
+            if (!urlValue.startsWith('http://') && !urlValue.startsWith('https://')) {
+                showError('Please enter a valid URL starting with http:// or https://');
                 return;
             }
 
-            setLoading(true);
-            clearProgress();
+            const selector = document.getElementById('formatSelector');
+            const selectedFormatId = selector.value || '';
+            const selectedOption = selector.options[selector.selectedIndex];
+            const selectedFormatLabel = selectedOption ? selectedOption.text : 'Auto';
+            const detected = detectPlatformFromUrl(urlValue);
+
+            const payload = {
+                url: urlValue,
+                platform: getSelectedPlatform(),
+                download_type: selectedFormatId === 'audio-only' ? 'audio' : 'video',
+                quality: 'best',
+            };
+            if (selectedFormatId) {
+                payload.format_id = selectedFormatId;
+            }
+
+            isDownloading = true;
+            setDownloadingState(true);
+            startProgressSimulation();
 
             try {
                 const response = await fetch(API_DOWNLOAD_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        mode: 'formats',
-                        url: link,
-                        platform: getSelectedPlatform(),
-                        download_type: 'video',
-                        quality: 'best',
-                    }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
                 });
 
-                if (!response.ok) {
-                    showError(await extractErrorMessage(response));
-                    clearFormatOptions();
+                if (response.status === 429) {
+                    completeProgress(false);
+                    let retryAfter = 60;
+                    try {
+                        const ratePayload = await response.json();
+                        if (ratePayload && Number.isFinite(Number(ratePayload.retry_after))) {
+                            retryAfter = Number(ratePayload.retry_after);
+                        }
+                    } catch (_error) {
+                        retryAfter = 60;
+                    }
+                    showRateLimitCountdown(retryAfter);
                     return;
                 }
 
-                const payload = await response.json();
-                if (!payload || !Array.isArray(payload.formats) || payload.formats.length === 0) {
-                    clearFormatOptions();
-                    showError('No downloadable quality options found for this link.');
-                    return;
-                }
-
-                renderFormatOptions(payload.formats);
-                showSuccess('Choose a quality option to start your download.');
-            } catch (error) {
-                console.error('Format lookup error:', error);
-                showError('Network error. Please check your connection and try again.');
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        function buildStatusUrl(jobId) {
-            return STATUS_URL_TEMPLATE.replace('__JOB_ID__', encodeURIComponent(jobId));
-        }
-
-        function stopProgressPolling() {
-            if (progressPollIntervalId) {
-                clearInterval(progressPollIntervalId);
-                progressPollIntervalId = null;
-            }
-        }
-
-        function startProgressPolling(jobId) {
-            stopProgressPolling();
-
-            progressPollIntervalId = setInterval(async () => {
-                try {
-                    const response = await fetch(buildStatusUrl(jobId), { method: 'GET' });
-                    if (!response.ok) {
-                        return;
-                    }
-
-                    const payload = await response.json();
-                    const nextPercent = Number(payload.percent);
-                    const nextMessage = typeof payload.message === 'string' ? payload.message : 'Downloading...';
-
-                    updateProgress(Number.isFinite(nextPercent) ? nextPercent : null, nextMessage);
-
-                    if (payload.status === 'finished' || payload.status === 'error') {
-                        stopProgressPolling();
-                    }
-                } catch (_error) {
-                    // Polling failures are temporary and should not stop the active download.
-                }
-            }, 800);
-        }
-
-        function createJobId() {
-            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-                return window.crypto.randomUUID().replace(/-/g, '');
-            }
-            return `job_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        }
-
-        async function startDownload(formatId) {
-            if (isBusy) {
-                return;
-            }
-
-            const link = validateLink();
-            if (!link) {
-                return;
-            }
-
-            if (!selectedFormats.some((item) => item.format_id === formatId)) {
-                showError('Invalid format selected. Please refresh quality options.');
-                return;
-            }
-
-            const jobId = createJobId();
-
-            setLoading(true);
-            updateProgress(0, 'Starting download...');
-            startProgressPolling(jobId);
-
-            try {
-                const response = await fetch(API_DOWNLOAD_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        mode: 'download',
-                        url: link,
-                        platform: getSelectedPlatform(),
-                        download_type: 'video',
-                        format_id: formatId,
-                        job_id: jobId,
-                    }),
-                });
-
                 if (!response.ok) {
+                    completeProgress(false);
                     showError(await extractErrorMessage(response));
                     return;
                 }
 
                 const blob = await response.blob();
                 if (!blob || blob.size === 0) {
+                    completeProgress(false);
                     showError('Download failed: empty file received.');
                     return;
                 }
 
                 const downloadUrl = window.URL.createObjectURL(blob);
                 const anchor = document.createElement('a');
+                const filename = getFilenameFromDisposition(response.headers.get('Content-Disposition'));
                 anchor.href = downloadUrl;
-                anchor.download = getFilenameFromDisposition(response.headers.get('Content-Disposition'));
+                anchor.download = filename;
                 document.body.appendChild(anchor);
                 anchor.click();
                 document.body.removeChild(anchor);
                 window.URL.revokeObjectURL(downloadUrl);
 
-                updateProgress(100, 'Download complete.');
+                completeProgress(true);
                 showSuccess('Download started successfully.');
-            } catch (error) {
-                console.error('Download error:', error);
+
+                saveDownloadHistory(
+                    {
+                        title: (latestMetadata && latestMetadata.title) || filename.replace(/\.[^.]+$/, ''),
+                        thumbnail: (latestMetadata && latestMetadata.thumbnail) || '',
+                        platform: (latestMetadata && latestMetadata.platform) || (detected && detected.name) || 'unknown',
+                        url: urlValue,
+                        timestamp: Date.now(),
+                        format_label: selectedFormatLabel,
+                    }
+                );
+            } catch (_error) {
+                completeProgress(false);
                 showError('Network error. Please check your connection and try again.');
             } finally {
-                setLoading(false);
-                setTimeout(() => {
-                    stopProgressPolling();
-                }, 600);
+                isDownloading = false;
+                setDownloadingState(false);
             }
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            loadPlatformIcon();
-            clearFormatOptions();
-            clearProgress();
+        function onUrlInputChanged() {
+            const urlValue = document.getElementById('videoLink').value;
+            updatePlatformBadge(urlValue);
+            debounceMetadataFetch(urlValue);
+        }
 
-            const inputField = document.getElementById('videoLink');
-            inputField.addEventListener('keydown', function(event) {
-                if (event.key === 'Enter' && !inputField.disabled) {
+        function applyPrefilledUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const prefilledUrl = params.get('url');
+            if (!prefilledUrl) {
+                return;
+            }
+            const input = document.getElementById('videoLink');
+            input.value = prefilledUrl;
+            onUrlInputChanged();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadPlatformCircle();
+            applyPrefilledUrl();
+
+            const input = document.getElementById('videoLink');
+            input.addEventListener('input', onUrlInputChanged);
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !isDownloading) {
                     event.preventDefault();
                     downloadVideo();
                 }
             });
 
-            inputField.addEventListener('input', function() {
-                clearFormatOptions();
-                clearProgress();
-            });
-
-            inputField.focus();
+            input.focus();
         });
     </script>
 </body>

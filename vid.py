@@ -97,6 +97,7 @@ except ModuleNotFoundError:
 
             return decorator
 
+
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -148,18 +149,12 @@ QUALITY_HEIGHTS: dict[str, int | None] = {
     "360": 360,
 }
 
+DOWNLOAD_RATE_LIMIT = "5 per minute"
+RATE_LIMIT_STORAGE_URI = os.getenv("REDIS_URL", "").strip() or "memory://"
 WORKSPACE_CLEANUP_INTERVAL_SECONDS = _env_int("WORKSPACE_CLEANUP_INTERVAL_SECONDS", 300)
 WORK_DIR_TTL_SECONDS = _env_int("WORK_DIR_TTL_SECONDS", 3600)
 LAST_WORKSPACE_CLEANUP = 0.0
 WORKSPACE_CLEANUP_LOCK = threading.Lock()
-DOWNLOAD_PROGRESS_TTL_SECONDS = _env_int("DOWNLOAD_PROGRESS_TTL_SECONDS", 1800)
-DOWNLOAD_PROGRESS_CLEANUP_INTERVAL_SECONDS = _env_int("DOWNLOAD_PROGRESS_CLEANUP_INTERVAL_SECONDS", 120)
-LAST_DOWNLOAD_PROGRESS_CLEANUP = 0.0
-DOWNLOAD_PROGRESS_CLEANUP_LOCK = threading.Lock()
-DOWNLOAD_PROGRESS: dict[str, dict] = {}
-DOWNLOAD_PROGRESS_LOCK = threading.Lock()
-DOWNLOAD_RATE_LIMIT = "5 per minute"
-RATE_LIMIT_STORAGE_URI = os.getenv("REDIS_URL", "").strip() or "memory://"
 
 KNOWN_MEDIA_EXTENSIONS = {
     ".mp4",
@@ -173,6 +168,9 @@ KNOWN_MEDIA_EXTENSIONS = {
     ".wav",
     ".flac",
 }
+
+METADATA_ALLOWED_EXTENSIONS = {"mp4", "webm", "mkv"}
+ENDPOINTS_LIST = ["/api/health", "/api/download", "/api/metadata", "/history"]
 
 
 class APIError(Exception):
@@ -188,9 +186,13 @@ class DownloadRequest:
     platform: str
     download_type: str
     quality: str
-    mode: str
     format_id: str | None
-    job_id: str | None
+
+
+@dataclass(frozen=True)
+class MetadataRequest:
+    url: str
+    platform: str
 
 
 def normalize_platform(platform: str | None) -> str:
@@ -201,7 +203,7 @@ def normalize_platform(platform: str | None) -> str:
 
 def sanitize_filename(name: str) -> str:
     collapsed = re.sub(r"\s+", " ", name).strip()
-    safe = re.sub(r'[^A-Za-z0-9._ -]+', "_", collapsed)
+    safe = re.sub(r"[^A-Za-z0-9._ -]+", "_", collapsed)
     safe = safe.strip(". ")
     return safe[:120] or "video"
 
@@ -261,15 +263,7 @@ if not FLASK_LIMITER_AVAILABLE:
     logger.warning("flask-limiter is unavailable. Falling back to in-process limiter.")
 
 
-def parse_download_payload() -> DownloadRequest:
-    if not request.is_json:
-        raise APIError("Request body must be JSON.", 400)
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        raise APIError("Malformed JSON payload.", 400)
-
-    raw_url = str(data.get("url", "")).strip()
+def validate_supported_url(raw_url: str) -> tuple[str, str]:
     if not raw_url:
         raise APIError("Please provide a video URL.", 400)
     if len(raw_url) > 2048:
@@ -285,6 +279,20 @@ def parse_download_payload() -> DownloadRequest:
             "Unsupported platform. Use a YouTube, TikTok, Instagram, Facebook, or X link.",
             400,
         )
+
+    return raw_url, detected_platform
+
+
+def parse_download_payload() -> DownloadRequest:
+    if not request.is_json:
+        raise APIError("Request body must be JSON.", 400)
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise APIError("Malformed JSON payload.", 400)
+
+    raw_url = str(data.get("url", "")).strip()
+    url, detected_platform = validate_supported_url(raw_url)
 
     platform_hint = normalize_platform(data.get("platform"))
     if platform_hint and platform_hint != detected_platform:
@@ -304,33 +312,30 @@ def parse_download_payload() -> DownloadRequest:
         raise APIError(f"quality must be one of: {valid_values}.", 400)
 
     raw_format_id = str(data.get("format_id", "")).strip()
-    if len(raw_format_id) > 200:
-        raise APIError("format_id is too long.", 400)
-
-    raw_mode = str(data.get("mode", "")).strip().lower()
-    mode = raw_mode or ("download" if raw_format_id else "formats")
-    if mode not in {"formats", "download"}:
-        raise APIError("mode must be either 'formats' or 'download'.", 400)
-    if mode == "download" and not raw_format_id:
-        raise APIError("format_id is required when mode is 'download'.", 400)
-
-    raw_job_id = str(data.get("job_id", "")).strip()
-    if raw_job_id and len(raw_job_id) > 120:
-        raise APIError("job_id is too long.", 400)
-    if raw_job_id and not re.fullmatch(r"[A-Za-z0-9._-]+", raw_job_id):
-        raise APIError("job_id contains invalid characters.", 400)
-
-    job_id = raw_job_id or (f"job_{uuid.uuid4().hex}" if mode == "download" else None)
+    if raw_format_id:
+        if len(raw_format_id) > 20 or not re.fullmatch(r"[A-Za-z0-9+-]+", raw_format_id):
+            raise APIError("format_id is invalid. Use only letters, numbers, +, -, max 20 chars.", 422)
 
     return DownloadRequest(
-        url=raw_url,
+        url=url,
         platform=detected_platform,
         download_type=raw_type,
         quality=raw_quality,
-        mode=mode,
         format_id=raw_format_id or None,
-        job_id=job_id,
     )
+
+
+def parse_metadata_payload() -> MetadataRequest:
+    if not request.is_json:
+        raise APIError("Request body must be JSON.", 400)
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise APIError("Malformed JSON payload.", 400)
+
+    raw_url = str(data.get("url", "")).strip()
+    url, detected_platform = validate_supported_url(raw_url)
+    return MetadataRequest(url=url, platform=detected_platform)
 
 
 def build_headers(platform: str) -> dict[str, str]:
@@ -370,23 +375,6 @@ def should_count_successful_download(response) -> bool:
     return "attachment" in content_disposition
 
 
-def humanize_filesize(size_bytes: int | None) -> str | None:
-    if not size_bytes or size_bytes <= 0:
-        return None
-
-    size_value = float(size_bytes)
-    units = ["B", "KB", "MB", "GB", "TB"]
-    unit_index = 0
-
-    while size_value >= 1024 and unit_index < len(units) - 1:
-        size_value /= 1024
-        unit_index += 1
-
-    if unit_index == 0:
-        return f"{int(size_value)} {units[unit_index]}"
-    return f"{size_value:.1f} {units[unit_index]}"
-
-
 def normalize_info_payload(info: dict | list | None):
     if isinstance(info, dict) and info.get("entries"):
         first_entry = next((entry for entry in info["entries"] if entry), None)
@@ -394,180 +382,93 @@ def normalize_info_payload(info: dict | list | None):
     return info
 
 
-def extract_available_formats(info: dict, download_type: str) -> list[dict]:
+def build_metadata_formats(info: dict) -> list[dict]:
     raw_formats = info.get("formats")
     if not isinstance(raw_formats, list):
-        return []
+        raw_formats = []
 
-    available_formats: list[dict] = []
-    seen_ids: set[str] = set()
+    collected: list[dict] = []
+    seen: set[str] = set()
 
-    for item in raw_formats:
-        if not isinstance(item, dict):
+    for current in raw_formats:
+        if not isinstance(current, dict):
             continue
 
-        format_id = str(item.get("format_id", "")).strip()
-        if not format_id or format_id in seen_ids:
+        format_id = str(current.get("format_id", "")).strip()
+        if not format_id or format_id in seen:
             continue
 
-        vcodec = str(item.get("vcodec", "none")).lower()
-        acodec = str(item.get("acodec", "none")).lower()
+        ext = str(current.get("ext", "")).strip().lower()
+        if ext not in METADATA_ALLOWED_EXTENSIONS:
+            continue
+
+        vcodec = str(current.get("vcodec", "none")).lower()
+        acodec = str(current.get("acodec", "none")).lower()
         has_video = vcodec not in {"none", ""}
         has_audio = acodec not in {"none", ""}
+        if not has_video:
+            continue
 
-        if download_type == "audio":
-            if not has_audio:
-                continue
-        else:
-            # Prefer ready-to-play single-file streams to avoid no-audio downloads.
-            if not (has_video and has_audio):
-                continue
-
-        raw_height = item.get("height")
+        raw_height = current.get("height")
         try:
-            height = int(raw_height) if raw_height else None
+            height = int(raw_height) if raw_height is not None else None
         except (TypeError, ValueError):
             height = None
 
-        if download_type == "audio":
-            resolution = "audio"
-        elif height:
-            resolution = f"{height}p"
-        else:
-            resolution = str(item.get("resolution") or item.get("format_note") or "unknown").strip()
+        if not has_audio:
+            if height is None or height < 144:
+                continue
 
-        raw_size = item.get("filesize") or item.get("filesize_approx")
+        raw_filesize = current.get("filesize") or current.get("filesize_approx")
         try:
-            size_bytes = int(raw_size) if raw_size else None
+            filesize = int(raw_filesize) if raw_filesize else None
         except (TypeError, ValueError):
-            size_bytes = None
+            filesize = None
 
-        available_formats.append(
+        if height:
+            label = f"{height}p {ext.upper()}"
+        else:
+            label = f"{ext.upper()} video"
+
+        collected.append(
             {
                 "format_id": format_id,
-                "resolution": resolution,
-                "ext": str(item.get("ext", "unknown")).strip().lower(),
-                "filesize": humanize_filesize(size_bytes),
-                "filesize_bytes": size_bytes,
-                "height_sort": height or 0,
+                "ext": ext,
+                "height": height,
+                "filesize": filesize,
+                "label": label,
+                "sort_height": height or 0,
             }
         )
-        seen_ids.add(format_id)
+        seen.add(format_id)
 
-    available_formats.sort(
-        key=lambda current: (current["height_sort"], current["filesize_bytes"] or 0),
-        reverse=True,
+    collected.sort(key=lambda item: (item["sort_height"], item["filesize"] or 0), reverse=True)
+    for item in collected:
+        item.pop("sort_height", None)
+
+    collected.append(
+        {
+            "format_id": "audio-only",
+            "ext": "mp3",
+            "height": None,
+            "filesize": None,
+            "label": "Audio only (MP3)",
+        }
     )
-
-    for current in available_formats:
-        current.pop("height_sort", None)
-
-    return available_formats
+    return collected
 
 
-def set_download_progress(
-    job_id: str | None,
-    *,
-    status: str,
-    percent: float | None = None,
-    message: str | None = None,
-    downloaded_bytes: int | None = None,
-    total_bytes: int | None = None,
-) -> None:
-    if not job_id:
-        return
-
-    payload = {
-        "job_id": job_id,
-        "status": status,
-        "updated_at": int(time.time()),
-    }
-
-    if percent is not None:
-        payload["percent"] = max(0.0, min(100.0, round(float(percent), 2)))
-    if message:
-        payload["message"] = message
-    if downloaded_bytes is not None:
-        payload["downloaded_bytes"] = int(downloaded_bytes)
-    if total_bytes is not None:
-        payload["total_bytes"] = int(total_bytes)
-
-    with DOWNLOAD_PROGRESS_LOCK:
-        merged = DOWNLOAD_PROGRESS.get(job_id, {}).copy()
-        merged.update(payload)
-        DOWNLOAD_PROGRESS[job_id] = merged
-
-
-def get_download_progress(job_id: str) -> dict | None:
-    with DOWNLOAD_PROGRESS_LOCK:
-        stored = DOWNLOAD_PROGRESS.get(job_id)
-        return stored.copy() if stored else None
-
-
-def maybe_cleanup_stale_download_progress() -> None:
-    global LAST_DOWNLOAD_PROGRESS_CLEANUP
-    now = time.time()
-
-    if (now - LAST_DOWNLOAD_PROGRESS_CLEANUP) < DOWNLOAD_PROGRESS_CLEANUP_INTERVAL_SECONDS:
-        return
-
-    with DOWNLOAD_PROGRESS_CLEANUP_LOCK:
-        now = time.time()
-        if (now - LAST_DOWNLOAD_PROGRESS_CLEANUP) < DOWNLOAD_PROGRESS_CLEANUP_INTERVAL_SECONDS:
-            return
-
-        stale_cutoff = now - DOWNLOAD_PROGRESS_TTL_SECONDS
-        with DOWNLOAD_PROGRESS_LOCK:
-            stale_job_ids = [
-                job_id
-                for job_id, entry in DOWNLOAD_PROGRESS.items()
-                if int(entry.get("updated_at", 0)) < stale_cutoff
-            ]
-            for job_id in stale_job_ids:
-                DOWNLOAD_PROGRESS.pop(job_id, None)
-
-        LAST_DOWNLOAD_PROGRESS_CLEANUP = now
-
-
-def build_progress_hook(job_id: str):
-    def _progress_hook(update: dict) -> None:
-        status = str(update.get("status", "")).lower()
-
-        if status == "downloading":
-            total_bytes = update.get("total_bytes") or update.get("total_bytes_estimate")
-            downloaded_bytes = update.get("downloaded_bytes") or 0
-
-            progress_percent: float | None = None
-            if isinstance(total_bytes, (int, float)) and total_bytes > 0:
-                progress_percent = (float(downloaded_bytes) / float(total_bytes)) * 100.0
-
-            percent_label = str(update.get("_percent_str", "")).strip()
-            message = f"Downloading {percent_label}" if percent_label else "Downloading..."
-
-            set_download_progress(
-                job_id,
-                status="downloading",
-                percent=progress_percent,
-                message=message,
-                downloaded_bytes=int(downloaded_bytes),
-                total_bytes=int(total_bytes) if isinstance(total_bytes, (int, float)) else None,
-            )
-        elif status == "finished":
-            set_download_progress(
-                job_id,
-                status="processing",
-                percent=99.0,
-                message="Finalizing file...",
-            )
-
-    return _progress_hook
-
-
-def build_ydl_options(job: DownloadRequest, work_dir: Path | None = None, *, probe_only: bool = False) -> dict:
-    selected_format = job.format_id if job.format_id else build_format_selector(job.download_type, job.quality)
+def build_ydl_options(job: DownloadRequest, work_dir: Path) -> dict:
+    if job.format_id == "audio-only":
+        selected_format = "bestaudio/best"
+    elif job.format_id:
+        selected_format = job.format_id
+    else:
+        selected_format = build_format_selector(job.download_type, job.quality)
 
     opts = {
         "format": selected_format,
+        "outtmpl": str(work_dir / "%(id)s.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
@@ -580,14 +481,41 @@ def build_ydl_options(job: DownloadRequest, work_dir: Path | None = None, *, pro
         "http_headers": build_headers(job.platform),
     }
 
-    if probe_only:
-        opts["skip_download"] = True
-    else:
-        if work_dir is None:
-            raise APIError("Download workspace was not initialized.", 500)
-        opts["outtmpl"] = str(work_dir / "%(id)s.%(ext)s")
-        if job.job_id:
-            opts["progress_hooks"] = [build_progress_hook(job.job_id)]
+    if job.format_id == "audio-only":
+        opts["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ]
+
+    if job.platform == "youtube":
+        opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+
+    browser = os.getenv("YTDLP_COOKIES_BROWSER", "").strip().lower()
+    cookie_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
+
+    return opts
+
+
+def build_metadata_ydl_options(job: MetadataRequest) -> dict:
+    opts = {
+        "skip_download": True,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "nocheckcertificate": True,
+        "geo_bypass": True,
+        "socket_timeout": _env_int("DOWNLOAD_SOCKET_TIMEOUT", 35),
+        "retries": _env_int("DOWNLOAD_RETRIES", 3),
+        "fragment_retries": _env_int("DOWNLOAD_FRAGMENT_RETRIES", 3),
+        "http_headers": build_headers(job.platform),
+    }
 
     if job.platform == "youtube":
         opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
@@ -694,58 +622,76 @@ def download_page():
     return render_template("download.html")
 
 
+@app.route("/history")
+def history_page():
+    return render_template("history.html")
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify(
         {
             "status": "ok",
+            "endpoints": ENDPOINTS_LIST,
             "supported_platforms": sorted(SUPPORTED_PLATFORM_DOMAINS.keys()),
         }
     )
+
+
+@app.route("/api/metadata", methods=["POST"])
+@limiter.limit(DOWNLOAD_RATE_LIMIT)
+def video_metadata():
+    try:
+        job = parse_metadata_payload()
+        ydl_opts = build_metadata_ydl_options(job)
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(job.url, download=False)
+
+        info = normalize_info_payload(info)
+        if not isinstance(info, dict):
+            raise APIError("Unable to inspect this link for metadata.", 422)
+
+        formats = build_metadata_formats(info)
+        if not formats:
+            raise APIError("No compatible formats were found for this URL.", 422)
+
+        duration_value = info.get("duration")
+        try:
+            duration = int(duration_value) if duration_value is not None else None
+        except (TypeError, ValueError):
+            duration = None
+
+        return jsonify(
+            {
+                "title": str(info.get("title", "Untitled video")),
+                "thumbnail": info.get("thumbnail"),
+                "duration": duration,
+                "uploader": str(info.get("uploader") or info.get("channel") or "Unknown uploader"),
+                "platform": job.platform,
+                "formats": formats,
+            }
+        )
+
+    except APIError as error:
+        return jsonify({"error": error.message}), error.status_code
+    except DownloadError as error:
+        mapped_error = map_download_error(error)
+        return jsonify({"error": mapped_error.message}), mapped_error.status_code
+    except Exception as error:
+        logger.exception("Unhandled metadata error")
+        mapped_error = map_download_error(error)
+        return jsonify({"error": mapped_error.message}), mapped_error.status_code
 
 
 @app.route("/api/download", methods=["POST"])
 @limiter.limit(DOWNLOAD_RATE_LIMIT, deduct_when=should_count_successful_download)
 def download_video():
     work_dir: Path | None = None
-    job_id: str | None = None
 
     try:
         maybe_cleanup_stale_work_dirs()
-        maybe_cleanup_stale_download_progress()
-
         job = parse_download_payload()
-        job_id = job.job_id
-
-        if job.mode == "formats":
-            logger.info(
-                "Fetching formats platform=%s type=%s quality=%s",
-                job.platform,
-                job.download_type,
-                job.quality,
-            )
-            probe_opts = build_ydl_options(job, probe_only=True)
-            with yt_dlp.YoutubeDL(probe_opts) as ydl:
-                info = ydl.extract_info(job.url, download=False)
-
-            info = normalize_info_payload(info)
-            if not isinstance(info, dict):
-                raise APIError("Unable to inspect this link for downloadable formats.", 502)
-
-            available_formats = extract_available_formats(info, job.download_type)
-            if not available_formats:
-                raise APIError("No downloadable formats were found for this link.", 404)
-
-            return jsonify(
-                {
-                    "title": str(info.get("title", "video")),
-                    "platform": job.platform,
-                    "download_type": job.download_type,
-                    "formats": available_formats,
-                }
-            )
-
-        set_download_progress(job_id, status="starting", percent=0.0, message="Starting download...")
         work_dir = create_work_dir()
         ydl_opts = build_ydl_options(job, work_dir)
 
@@ -761,11 +707,9 @@ def download_video():
             info = ydl.extract_info(job.url, download=True)
 
         info = normalize_info_payload(info)
-
         media_path = pick_media_file(work_dir)
         title = sanitize_filename(str(info.get("title", "video"))) if isinstance(info, dict) else "video"
         download_name = f"{title}{media_path.suffix.lower()}"
-        set_download_progress(job_id, status="finished", percent=100.0, message="Download complete.")
 
         response = send_file(
             media_path,
@@ -773,36 +717,22 @@ def download_video():
             download_name=download_name,
             conditional=False,
         )
-        if job_id:
-            response.headers["X-Download-Job-Id"] = job_id
         response.call_on_close(lambda: cleanup_work_dir(work_dir))
         return response
 
     except APIError as error:
         cleanup_work_dir(work_dir)
-        set_download_progress(job_id, status="error", message=error.message)
         return jsonify({"error": error.message}), error.status_code
     except DownloadError as error:
         cleanup_work_dir(work_dir)
         mapped_error = map_download_error(error)
-        set_download_progress(job_id, status="error", message=mapped_error.message)
         logger.warning("DownloadError: %s", error)
         return jsonify({"error": mapped_error.message}), mapped_error.status_code
     except Exception as error:
         cleanup_work_dir(work_dir)
         logger.exception("Unhandled download error")
         mapped_error = map_download_error(error)
-        set_download_progress(job_id, status="error", message=mapped_error.message)
         return jsonify({"error": mapped_error.message}), mapped_error.status_code
-
-
-@app.route("/api/download/status/<job_id>", methods=["GET"])
-def download_status(job_id: str):
-    maybe_cleanup_stale_download_progress()
-    progress = get_download_progress(job_id)
-    if not progress:
-        return jsonify({"status": "not_found", "job_id": job_id}), 404
-    return jsonify(progress)
 
 
 @app.errorhandler(413)
@@ -812,18 +742,14 @@ def payload_too_large(_error):
 
 @app.errorhandler(429)
 def rate_limit_exceeded(error):
-    retry_after = None
-    if isinstance(error, RateLimitExceeded):
-        retry_after = getattr(error, "retry_after", None)
+    retry_after_value = getattr(error, "retry_after", None)
+    try:
+        retry_after = int(float(retry_after_value)) if retry_after_value is not None else 60
+    except (TypeError, ValueError):
+        retry_after = 60
+    retry_after = max(1, retry_after)
 
-    payload = {"error": "Too many successful downloads. Please wait before trying again."}
-    if retry_after is not None:
-        try:
-            payload["retry_after"] = int(float(retry_after))
-        except (TypeError, ValueError):
-            pass
-
-    return jsonify(payload), 429
+    return jsonify({"error": "Rate limit exceeded", "retry_after": retry_after}), 429
 
 
 if __name__ == "__main__":

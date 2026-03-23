@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>download history</title>
+</head>
+<body>
+    <div class="history-page">
+        <div class="history-header">
+            <a href="{{ url_for('home') }}" class="nav-link nav-link-light">Home</a>
+            <h1 class="history-title">Download History</h1>
+            <button id="clearHistoryButton" class="history-clear-btn">Clear history</button>
+        </div>
+
+        <div id="historyEmpty" class="history-empty is-hidden">
+            <h2>No downloads yet</h2>
+            <p>Your successful downloads will appear here.</p>
+            <a href="{{ url_for('download_page') }}" class="history-primary-link">Go to downloader</a>
+        </div>
+
+        <div id="historyList" class="history-list"></div>
+    </div>
+
+    <script>
+        function loadHistory() {
+            try {
+                const raw = localStorage.getItem('download_history');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_error) {
+                return [];
+            }
+        }
+
+        function saveHistory(items) {
+            localStorage.setItem('download_history', JSON.stringify(items));
+        }
+
+        function timeAgo(timestamp) {
+            const now = Date.now();
+            const diffMs = Math.max(0, now - Number(timestamp || 0));
+            const diffMinutes = Math.floor(diffMs / 60000);
+
+            if (diffMinutes < 1) {
+                return 'just now';
+            }
+            if (diffMinutes < 60) {
+                return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+            }
+            const diffHours = Math.floor(diffMinutes / 60);
+            if (diffHours < 24) {
+                return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+            }
+            const diffDays = Math.floor(diffHours / 24);
+            return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderHistory() {
+            const historyItems = loadHistory();
+            const list = document.getElementById('historyList');
+            const emptyState = document.getElementById('historyEmpty');
+
+            list.innerHTML = '';
+            if (historyItems.length === 0) {
+                emptyState.classList.remove('is-hidden');
+                return;
+            }
+
+            emptyState.classList.add('is-hidden');
+
+            historyItems.forEach((item) => {
+                const safeTitle = escapeHtml(item.title || 'Untitled video');
+                const safePlatform = escapeHtml(item.platform || 'unknown');
+                const safeFormat = escapeHtml(item.format_label || 'Auto');
+                const safeUrl = encodeURIComponent(item.url || '');
+                const safeThumb = item.thumbnail ? escapeHtml(item.thumbnail) : '';
+
+                const card = document.createElement('article');
+                card.className = 'history-card';
+                card.innerHTML = `
+                    <div class="history-thumb-wrap">
+                        ${safeThumb
+                            ? `<img src="${safeThumb}" alt="Thumbnail" class="history-thumb">`
+                            : '<div class="history-thumb history-thumb-placeholder">No image</div>'}
+                    </div>
+                    <div class="history-meta">
+                        <h3 class="history-card-title">${safeTitle}</h3>
+                        <div class="history-badges">
+                            <span class="history-platform-badge">${safePlatform}</span>
+                            <span class="history-format-badge">${safeFormat}</span>
+                        </div>
+                        <p class="history-time">${timeAgo(item.timestamp)}</p>
+                    </div>
+                    <a href="{{ url_for('download_page') }}?url=${safeUrl}" class="history-download-again">Download again</a>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderHistory();
+
+            const clearButton = document.getElementById('clearHistoryButton');
+            clearButton.addEventListener('click', () => {
+                saveHistory([]);
+                renderHistory();
+            });
+        });
+    </script>
+</body>
+</html>
