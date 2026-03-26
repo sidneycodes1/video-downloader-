@@ -131,6 +131,7 @@ Returns in-progress download status updates (percentage + message) for frontend 
 - `DOWNLOAD_SOCKET_TIMEOUT` (default: `35`)
 - `DOWNLOAD_RETRIES` (default: `3`)
 - `DOWNLOAD_FRAGMENT_RETRIES` (default: `3`)
+- `YTDLP_FORCE_IPV4` (default: `1`; set to `0` to disable forced IPv4 source binding)
 - `DOWNLOAD_PROGRESS_TTL_SECONDS` (default: `1800`)
 - `DOWNLOAD_PROGRESS_CLEANUP_INTERVAL_SECONDS` (default: `120`)
 - `YTDLP_COOKIES_BROWSER` (optional)

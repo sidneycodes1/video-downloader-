@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import yt_dlp
 from flask import Flask, jsonify, make_response, render_template, request, send_file
@@ -124,6 +124,16 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "1" if default else "0").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("Invalid boolean for %s=%s. Falling back to %s.", name, raw, default)
+    return default
+
+
 SUPPORTED_PLATFORM_DOMAINS: dict[str, tuple[str, ...]] = {
     "youtube": ("youtube.com", "youtu.be", "youtube-nocookie.com"),
     "instagram": ("instagram.com", "instagr.am"),
@@ -171,6 +181,7 @@ KNOWN_MEDIA_EXTENSIONS = {
 
 METADATA_ALLOWED_EXTENSIONS = {"mp4", "webm", "mkv"}
 ENDPOINTS_LIST = ["/api/health", "/api/download", "/api/metadata", "/history"]
+FACEBOOK_QUERY_PARAMS_TO_DROP = {"mibextid", "ref", "refsrc", "sfnsn", "__tn__"}
 
 
 class APIError(Exception):
@@ -245,6 +256,40 @@ def detect_platform(hostname: str) -> str | None:
     return None
 
 
+def normalize_facebook_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return raw_url
+
+    if hostname == "facebook.com" or hostname.endswith(".facebook.com"):
+        normalized_host = "www.facebook.com"
+    elif hostname == "fb.watch" or hostname.endswith(".fb.watch"):
+        normalized_host = "fb.watch"
+    else:
+        return raw_url
+
+    path = parsed.path or "/"
+    query_items = parse_qsl(parsed.query, keep_blank_values=False)
+    filtered_query = [
+        (key, value) for key, value in query_items if key.strip().lower() not in FACEBOOK_QUERY_PARAMS_TO_DROP
+    ]
+    filtered_query_map = dict(filtered_query)
+
+    share_video_match = re.fullmatch(r"/share/v/([0-9]+)/?", path, flags=re.IGNORECASE)
+    if share_video_match:
+        filtered_query_map["v"] = share_video_match.group(1)
+        path = "/watch/"
+
+    reel_match = re.fullmatch(r"/reel/([0-9]+)/?", path, flags=re.IGNORECASE)
+    if reel_match:
+        filtered_query_map["v"] = reel_match.group(1)
+        path = "/watch/"
+
+    normalized_query = urlencode(filtered_query_map, doseq=True)
+    return urlunparse(("https", normalized_host, path, "", normalized_query, ""))
+
+
 def get_client_ip() -> str:
     forwarded_for = request.headers.get("X-Forwarded-For", "")
     if forwarded_for:
@@ -280,7 +325,11 @@ def validate_supported_url(raw_url: str) -> tuple[str, str]:
             400,
         )
 
-    return raw_url, detected_platform
+    normalized_url = raw_url
+    if detected_platform == "facebook":
+        normalized_url = normalize_facebook_url(raw_url)
+
+    return normalized_url, detected_platform
 
 
 def parse_download_payload() -> DownloadRequest:
@@ -493,6 +542,10 @@ def build_ydl_options(job: DownloadRequest, work_dir: Path) -> dict:
     if job.platform == "youtube":
         opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
 
+    if _env_bool("YTDLP_FORCE_IPV4", True):
+        # Some hosts block IPv6/mixed sockets; forcing IPv4 avoids common WinError 10013 cases.
+        opts["source_address"] = "0.0.0.0"
+
     browser = os.getenv("YTDLP_COOKIES_BROWSER", "").strip().lower()
     cookie_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
     if browser:
@@ -519,6 +572,9 @@ def build_metadata_ydl_options(job: MetadataRequest) -> dict:
 
     if job.platform == "youtube":
         opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+
+    if _env_bool("YTDLP_FORCE_IPV4", True):
+        opts["source_address"] = "0.0.0.0"
 
     browser = os.getenv("YTDLP_COOKIES_BROWSER", "").strip().lower()
     cookie_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
@@ -552,6 +608,19 @@ def map_download_error(error: Exception) -> APIError:
         return APIError("Source platform rate limit reached. Please try again later.", 429)
     if "404" in message or "not found" in message or "unavailable" in message:
         return APIError("Video not found or unavailable.", 404)
+    if (
+        "winerror 10013" in message
+        or "getaddrinfo failed" in message
+        or "failed to resolve" in message
+        or "name or service not known" in message
+        or "temporary failure in name resolution" in message
+        or "nodename nor servname provided" in message
+    ):
+        return APIError(
+            "Could not reach the source platform from this server (DNS/socket blocked). "
+            "Check firewall, DNS, or VPN settings and try again.",
+            502,
+        )
     if "timed out" in message or "timeout" in message:
         return APIError("Download timed out. Please try again.", 504)
     if "network" in message or "connection" in message:

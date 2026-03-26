@@ -75,6 +75,20 @@ class FakeYoutubeDL:
         }
 
 
+class FakeNetworkErrorYoutubeDL:
+    def __init__(self, _options):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def extract_info(self, _url, download=True):
+        raise vid.DownloadError("Unable to download webpage: [WinError 10013] socket blocked")
+
+
 class VideoDownloaderApiTests(unittest.TestCase):
     def setUp(self):
         vid.app.config["TESTING"] = True
@@ -124,6 +138,14 @@ class VideoDownloaderApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("unsupported platform", payload["error"].lower())
+
+    def test_validate_supported_url_normalizes_facebook_host_and_tracking_params(self):
+        url, platform = vid.validate_supported_url(
+            "https://m.facebook.com/reel/744372871141776/?mibextid=abcd1234&ref=share"
+        )
+
+        self.assertEqual(platform, "facebook")
+        self.assertEqual(url, "https://www.facebook.com/watch/?v=744372871141776")
 
     def test_metadata_returns_expected_fields(self):
         with patch("vid.yt_dlp.YoutubeDL", FakeYoutubeDL):
@@ -201,6 +223,42 @@ class VideoDownloaderApiTests(unittest.TestCase):
             self.assertEqual(FakeYoutubeDL.last_options["format"], "22")
         finally:
             response.close()
+
+    def test_ydl_options_force_ipv4_by_default(self):
+        with patch.dict("os.environ", {}, clear=False):
+            opts = vid.build_metadata_ydl_options(
+                vid.MetadataRequest(url="https://www.facebook.com/watch/?v=12345", platform="facebook")
+            )
+        self.assertEqual(opts.get("source_address"), "0.0.0.0")
+
+    def test_ydl_options_can_disable_ipv4_force(self):
+        with patch.dict("os.environ", {"YTDLP_FORCE_IPV4": "0"}, clear=False):
+            opts = vid.build_metadata_ydl_options(
+                vid.MetadataRequest(url="https://www.facebook.com/watch/?v=12345", platform="facebook")
+            )
+        self.assertNotIn("source_address", opts)
+
+    def test_map_download_error_for_socket_dns_failures(self):
+        mapped = vid.map_download_error(Exception("WinError 10013 socket blocked"))
+        self.assertEqual(mapped.status_code, 502)
+        self.assertIn("dns/socket", mapped.message.lower())
+
+    def test_download_returns_clear_message_for_socket_dns_errors(self):
+        with patch("vid.yt_dlp.YoutubeDL", FakeNetworkErrorYoutubeDL):
+            response = self.client.post(
+                "/api/download",
+                json={
+                    "url": "https://www.facebook.com/watch/?v=12345",
+                    "platform": "Facebook",
+                    "download_type": "video",
+                    "quality": "best",
+                },
+                headers=self.headers,
+            )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("dns/socket", payload["error"].lower())
 
     def test_rate_limit_blocks_sixth_successful_download(self):
         responses = []
