@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -1227,9 +1228,15 @@ def get_download_workspace() -> Path:
     configured_path = os.getenv("DOWNLOAD_WORK_DIR", "").strip()
     if configured_path:
         base_path = Path(configured_path)
-    else:
-        base_path = Path(__file__).resolve().parent / ".download_tmp"
-    base_path.mkdir(parents=True, exist_ok=True)
+        base_path.mkdir(parents=True, exist_ok=True)
+        return base_path
+
+    base_path = Path("/tmp/.download_tmp")
+    try:
+        base_path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        base_path = Path(tempfile.gettempdir()) / ".download_tmp"
+        base_path.mkdir(parents=True, exist_ok=True)
     return base_path
 
 
