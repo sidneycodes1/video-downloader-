@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Schedule social media video downloads from YouTube, TikTok, Instagram, Facebook, and X with our fast Flask downloader.">
+    <meta property="og:title" content="Deep Video Downloader - Schedule Downloads">
+    <meta property="og:description" content="Plan downloads ahead of time and manage upcoming jobs in one place.">
+    <meta property="og:type" content="website">
+    <link rel="canonical" href="{{ request.url_root.rstrip('/') }}{{ url_for('schedule_page') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>schedule downloads</title>
+    <style>
+        /* NEW FEATURE: Download Scheduler */
+        .schedule-card {
+            width: 100%;
+            max-width: 900px;
+            margin-top: 18px;
+            padding: 18px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            color: white;
+        }
+
+        .schedule-card h2 {
+            margin-bottom: 14px;
+            font-size: 24px;
+        }
+
+        .schedule-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .schedule-label {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .schedule-input {
+            width: 100%;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.45);
+            background: rgba(255, 255, 255, 0.16);
+            color: white;
+            font-size: 15px;
+            padding: 12px 14px;
+            outline: none;
+        }
+
+        .schedule-input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .schedule-input option {
+            color: #111;
+        }
+
+        .schedule-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .schedule-btn {
+            border: none;
+            border-radius: 999px;
+            background: white;
+            color: #0079d3;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 10px 18px;
+            cursor: pointer;
+        }
+
+        .schedule-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .schedule-item {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: center;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            padding: 12px;
+        }
+
+        .schedule-item-title {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            word-break: break-word;
+        }
+
+        .schedule-item-meta {
+            font-size: 12px;
+            opacity: 0.92;
+            word-break: break-word;
+        }
+
+        .schedule-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.22);
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            width: fit-content;
+        }
+
+        .schedule-badge svg {
+            width: 14px;
+            height: 14px;
+            fill: white;
+        }
+
+        .schedule-empty {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 640px) {
+            .schedule-item {
+                grid-template-columns: 1fr;
+            }
+
+            .schedule-btn {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content">
+        <div class="download-top-row">
+            <a href="{{ url_for('home') }}" class="nav-link nav-link-light">Home</a>
+            <div style="display:flex; gap:10px;">
+                <a href="{{ url_for('download_page') }}" class="nav-link nav-link-light">Download</a>
+                <a href="{{ url_for('history_page') }}" class="nav-link nav-link-light">History</a>
+            </div>
+        </div>
+
+        <div class="platform-circle" id="platformCircle"></div>
+
+        <section class="schedule-card">
+            <!-- NEW FEATURE: Download Scheduler -->
+            <h2>Schedule a Download</h2>
+            <div class="schedule-grid">
+                <label class="schedule-label" for="scheduleUrl">Video URL</label>
+                <input id="scheduleUrl" type="text" class="schedule-input" placeholder="https://...">
+                <div id="schedulePlatformBadge" class="schedule-badge is-hidden"></div>
+
+                <label class="schedule-label" for="scheduleAt">Date and time</label>
+                <input id="scheduleAt" type="datetime-local" class="schedule-input">
+
+                <label class="schedule-label" for="scheduleTimezone">Timezone</label>
+                <select id="scheduleTimezone" class="schedule-input">
+                    <option value="UTC">UTC</option>
+                    <option value="WAT">WAT</option>
+                    <option value="CAT">CAT</option>
+                    <option value="EAT">EAT</option>
+                    <option value="GMT">GMT</option>
+                    <option value="CET">CET</option>
+                    <option value="EST">EST</option>
+                    <option value="PST">PST</option>
+                </select>
+            </div>
+
+            <div class="schedule-actions">
+                <button type="button" class="schedule-btn" id="scheduleSubmit">Schedule Download</button>
+            </div>
+        </section>
+
+        <section id="scheduleConfirmation" class="schedule-card is-hidden"></section>
+
+        <section class="schedule-card">
+            <h2>Upcoming Scheduled Downloads</h2>
+            <div id="scheduledList" class="schedule-list"></div>
+            <p id="scheduledEmpty" class="schedule-empty">No scheduled downloads yet.</p>
+        </section>
+
+        <div id="scheduleError" class="error-message is-hidden"></div>
+    </div>
+
+    <script>
+        // NEW FEATURE: Download Scheduler
+        const API_SCHEDULE_URL = '{{ url_for("schedule_download") }}';
+
+        const platformIcons = {
+            youtube: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/></svg>',
+            instagram: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>',
+            facebook: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>',
+            tiktok: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/></svg>',
+            twitter: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+        };
+
+        const platformMatchers = [
+            { key: 'youtube', name: 'youtube', domains: ['youtube.com', 'youtu.be', 'youtube-nocookie.com'] },
+            { key: 'instagram', name: 'instagram', domains: ['instagram.com', 'instagr.am'] },
+            { key: 'facebook', name: 'facebook', domains: ['facebook.com', 'fb.watch'] },
+            { key: 'tiktok', name: 'tiktok', domains: ['tiktok.com', 'douyin.com'] },
+            { key: 'twitter', name: 'twitter', domains: ['x.com', 'twitter.com', 't.co'] },
+        ];
+
+        function getSelectedPlatform() {
+            return (localStorage.getItem('selectedPlatform') || 'youtube').toLowerCase();
+        }
+
+        function loadPlatformCircle() {
+            const selected = getSelectedPlatform();
+            const circle = document.getElementById('platformCircle');
+            circle.innerHTML = platformIcons[selected] || platformIcons.youtube;
+        }
+
+        function detectPlatformFromUrl(rawUrl) {
+            if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) {
+                return null;
+            }
+
+            try {
+                const parsed = new URL(rawUrl);
+                const hostname = parsed.hostname.toLowerCase();
+                for (const item of platformMatchers) {
+                    if (item.domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+                        return item;
+                    }
+                }
+            } catch (_error) {
+                return null;
+            }
+            return null;
+        }
+
+        function updatePlatformBadge(rawUrl) {
+            const badge = document.getElementById('schedulePlatformBadge');
+            const detected = detectPlatformFromUrl(rawUrl);
+            if (!detected) {
+                badge.classList.add('is-hidden');
+                badge.innerHTML = '';
+                return;
+            }
+            badge.innerHTML = `${platformIcons[detected.key] || ''}<span>${detected.name} detected</span>`;
+            badge.classList.remove('is-hidden');
+        }
+
+        function showError(message) {
+            const box = document.getElementById('scheduleError');
+            box.textContent = message;
+            box.classList.remove('is-hidden');
+        }
+
+        function clearError() {
+            const box = document.getElementById('scheduleError');
+            box.textContent = '';
+            box.classList.add('is-hidden');
+        }
+
+        async function loadScheduledJobs() {
+            const list = document.getElementById('scheduledList');
+            const empty = document.getElementById('scheduledEmpty');
+            list.innerHTML = '';
+
+            try {
+                const response = await fetch(API_SCHEDULE_URL, { method: 'GET' });
+                const payload = await response.json();
+                const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+
+                if (jobs.length === 0) {
+                    empty.classList.remove('is-hidden');
+                    return;
+                }
+
+                empty.classList.add('is-hidden');
+                jobs.forEach((job) => {
+                    const item = document.createElement('article');
+                    item.className = 'schedule-item';
+                    item.innerHTML = `
+                        <div>
+                            <div class="schedule-item-title">${job.url}</div>
+                            <div class="schedule-item-meta">${job.platform} · ${job.scheduled_at} · ${job.timezone}</div>
+                        </div>
+                        <button class="schedule-btn" data-id="${job.job_id}">Cancel</button>
+                    `;
+                    list.appendChild(item);
+                });
+
+                list.querySelectorAll('button[data-id]').forEach((button) => {
+                    button.addEventListener('click', async () => {
+                        clearError();
+                        const jobId = button.getAttribute('data-id');
+                        const response = await fetch(`${API_SCHEDULE_URL}/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+                        if (!response.ok) {
+                            let message = 'Failed to cancel scheduled download.';
+                            try {
+                                const payload = await response.json();
+                                if (payload && payload.error) {
+                                    message = payload.error;
+                                }
+                            } catch (_error) {
+                                // ignore
+                            }
+                            showError(message);
+                            return;
+                        }
+                        await loadScheduledJobs();
+                    });
+                });
+            } catch (_error) {
+                showError('Could not load scheduled jobs. Please try again.');
+            }
+        }
+
+        async function submitSchedule() {
+            clearError();
+            const urlInput = document.getElementById('scheduleUrl');
+            const scheduleAtInput = document.getElementById('scheduleAt');
+            const timezoneInput = document.getElementById('scheduleTimezone');
+            const confirmation = document.getElementById('scheduleConfirmation');
+
+            const urlValue = urlInput.value.trim();
+            const scheduledAt = scheduleAtInput.value;
+            const timezone = timezoneInput.value;
+
+            if (!urlValue) {
+                showError('Please paste a valid URL.');
+                return;
+            }
+            if (!scheduledAt) {
+                showError('Please choose a date and time.');
+                return;
+            }
+
+            const detected = detectPlatformFromUrl(urlValue);
+            const selectedPlatform = detected ? detected.name : getSelectedPlatform();
+
+            const body = {
+                url: urlValue,
+                platform: selectedPlatform,
+                format_id: null,
+                scheduled_at: scheduledAt,
+                timezone,
+            };
+
+            try {
+                const response = await fetch(API_SCHEDULE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+                const payload = await response.json();
+                if (!response.ok) {
+                    showError(payload && payload.error ? payload.error : 'Unable to schedule this download.');
+                    return;
+                }
+
+                confirmation.classList.remove('is-hidden');
+                confirmation.innerHTML = `
+                    <h2>Scheduled Successfully</h2>
+                    <p><strong>Job ID:</strong> ${payload.job_id}</p>
+                    <p><strong>Scheduled At:</strong> ${payload.scheduled_at}</p>
+                    <p><strong>Status:</strong> ${payload.status}</p>
+                `;
+
+                await loadScheduledJobs();
+            } catch (_error) {
+                showError('Network error while scheduling. Please try again.');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadPlatformCircle();
+            loadScheduledJobs();
+
+            const urlInput = document.getElementById('scheduleUrl');
+            urlInput.addEventListener('input', () => updatePlatformBadge(urlInput.value));
+
+            document.getElementById('scheduleSubmit').addEventListener('click', submitSchedule);
+        });
+    </script>
+</body>
+</html>
