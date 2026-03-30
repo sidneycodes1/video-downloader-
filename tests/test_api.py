@@ -605,7 +605,7 @@ class VideoDownloaderApiTests(unittest.TestCase):
             quality="best",
             format_id="22",
         )
-        opts = vid.build_ydl_options(job, Path(".download_tmp"))
+        opts = vid.build_ydl_options(job, Path("/tmp/.download_tmp"))
 
         self.assertEqual(opts.get("format"), "best")
         self.assertEqual(opts.get("http_headers"), {"User-Agent": vid.DESKTOP_CHROME_120_UA})
