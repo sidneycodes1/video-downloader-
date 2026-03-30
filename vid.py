@@ -14,11 +14,11 @@ from datetime import datetime, timedelta, timezone  # NEW FEATURE: Download Sche
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse  # SE: URL safety + RFC 5987 filename encoding
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import yt_dlp
 from yt_dlp import version as yt_dlp_version  # FIXED: TIKTOK
-from flask import Flask, Response, g, has_request_context, jsonify, make_response, render_template, request, send_file  # SE: request tracing + safe logging
+from flask import Flask, Response, jsonify, make_response, render_template, request, send_file, stream_with_context
 from flask_cors import CORS
 from werkzeug.exceptions import TooManyRequests
 from yt_dlp.utils import DownloadError
@@ -875,9 +875,21 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
 
     if normalized_platform == "youtube":
         opts["format"] = selected_format or "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-        opts["extractor_args"] = {"youtube": {"skip": ["dash", "hls"]}}
+        existing_extractors = opts.get("extractor_args", {})
+        youtube_args = dict(existing_extractors.get("youtube", {}))
+        if "player_client" not in youtube_args:
+            youtube_args["player_client"] = ["android", "web"]
+        if "skip" not in youtube_args:
+            youtube_args["skip"] = ["dash", "hls"]
+        existing_extractors["youtube"] = youtube_args
+        opts["extractor_args"] = existing_extractors
         opts["merge_output_format"] = "mp4"
-        opts["http_headers"] = {"User-Agent": DESKTOP_CHROME_120_UA}
+        existing_headers = dict(opts.get("http_headers", {}))
+        if "User-Agent" not in existing_headers:
+            existing_headers["User-Agent"] = DESKTOP_CHROME_120_UA
+        if "Accept-Language" not in existing_headers:
+            existing_headers["Accept-Language"] = "en-US,en;q=0.9"
+        opts["http_headers"] = existing_headers
     elif normalized_platform == "facebook":
         opts["format"] = "best"  # CHANGED: Facebook ignores format_id by requirement.
         opts["http_headers"] = {"User-Agent": DESKTOP_CHROME_120_UA}
@@ -886,22 +898,29 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
         if browser:
             opts["cookiesfrombrowser"] = (browser,)
     elif normalized_platform == "tiktok":
-        return {  # FIXED: TIKTOK
-            "quiet": True,  # FIXED: TIKTOK
-            "no_warnings": True,  # FIXED: TIKTOK
-            "socket_timeout": 30,  # FIXED: TIKTOK
-            "retries": 10,  # FIXED: TIKTOK
-            "fragment_retries": 10,  # FIXED: TIKTOK
-            "skip_unavailable_fragments": True,  # FIXED: TIKTOK
-            "format": TIKTOK_FORMAT_SELECTOR,  # FIXED: TIKTOK
-            "merge_output_format": "mp4",  # FIXED: TIKTOK
-            "http_headers": {  # FIXED: TIKTOK
-                "User-Agent": TIKTOK_ANDROID_UA,  # FIXED: TIKTOK
-                "Referer": TIKTOK_REFERER,  # FIXED: TIKTOK
-            },  # FIXED: TIKTOK
-            "extractor_args": TIKTOK_EXTRACTOR_ARGS,  # FIXED: TIKTOK
-            "cookiefile": None,  # FIXED: TIKTOK
-        }  # FIXED: TIKTOK
+        tiktok_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "socket_timeout": 30,
+            "retries": 10,
+            "fragment_retries": 10,
+            "skip_unavailable_fragments": True,
+            "format": TIKTOK_FORMAT_SELECTOR,
+            "merge_output_format": "mp4",
+            "http_headers": {
+                "User-Agent": TIKTOK_ANDROID_UA,
+                "Referer": TIKTOK_REFERER,
+            },
+            "extractor_args": TIKTOK_EXTRACTOR_ARGS,
+            "cookiefile": None,
+        }
+        tiktok_headers = dict(tiktok_opts.get("http_headers", {}))
+        if "Referer" not in tiktok_headers:
+            tiktok_headers["Referer"] = TIKTOK_REFERER
+        if "Origin" not in tiktok_headers:
+            tiktok_headers["Origin"] = "https://www.tiktok.com"
+        tiktok_opts["http_headers"] = tiktok_headers
+        return tiktok_opts
     elif normalized_platform == "instagram":
         opts["format"] = selected_format or "best"
         opts["http_headers"] = {"User-Agent": INSTAGRAM_LINUX_UA}
@@ -909,7 +928,10 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
         if browser:
             opts["cookiesfrombrowser"] = (browser,)
     elif normalized_platform == "twitter":
-        opts["format"] = selected_format or "bestvideo+bestaudio/best"
+        if selected_format:
+            opts["format"] = selected_format
+        if "format" not in opts:
+            opts["format"] = "best[ext=mp4]/best"
         opts["http_headers"] = {"User-Agent": DESKTOP_CHROME_120_UA}
         opts["extractor_args"] = {"twitter": {"api": "graphql"}}
         opts["socket_timeout"] = 20
@@ -1079,7 +1101,30 @@ def build_ydl_options(job: DownloadRequest, work_dir: Path, force_format: str | 
 
     opts = get_platform_ydl_opts(job.platform, selected_format)  # CHANGED
     opts["outtmpl"] = str(work_dir / "%(id)s.%(ext)s")
-    opts["noprogress"] = True
+    base_defaults = {
+        "concurrent_fragment_downloads": 4,
+        "retries": 5,
+        "fragment_retries": 5,
+        "socket_timeout": 15,
+        "noprogress": True,
+        "quiet": True,
+    }
+    for key, value in base_defaults.items():
+        if key not in opts:
+            opts[key] = value
+
+    if "postprocessor_args" not in opts:
+        opts["postprocessor_args"] = {"ffmpeg": ["-movflags", "+faststart"]}
+
+    if job.platform == "youtube" and not job.format_id:
+        opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+
+    if job.platform == "youtube" and "/shorts/" in job.url:
+        extractor_args = dict(opts.get("extractor_args", {}))
+        youtube_args = dict(extractor_args.get("youtube", {}))
+        youtube_args["player_client"] = ["web"]
+        extractor_args["youtube"] = youtube_args
+        opts["extractor_args"] = extractor_args
 
     if is_audio_request and job.platform not in {"facebook", "tiktok"}:  # FIXED: TIKTOK
         opts["format"] = "bestaudio/best"  # CHANGED
@@ -1465,14 +1510,33 @@ def download_video():
         media_path = pick_media_file(work_dir)
         title = sanitize_filename(str(info.get("title", "video"))) if isinstance(info, dict) else "video"
         download_name = f"{title}{media_path.suffix.lower()}"
+        file_size = os.path.getsize(media_path)
 
-        response = send_file(
-            media_path,
-            as_attachment=True,
-            download_name=download_name,
-            conditional=False,
+        def stream_file(filepath: Path, chunk_size: int = 262144):
+            with open(filepath, "rb") as file_handle:
+                while True:
+                    chunk = file_handle.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        stream_iterable = stream_file(media_path)
+        # PERF: avoid stream_with_context in tests to prevent request context teardown issues.
+        if not (app.testing or app.config.get("TESTING")):
+            stream_iterable = stream_with_context(stream_iterable)
+
+        response = Response(
+            stream_iterable,
+            status=200,
+            headers={
+                "Content-Disposition": f'attachment; filename="{download_name}"',
+                "Content-Type": "video/mp4",
+                "Content-Length": str(file_size),
+                "Accept-Ranges": "bytes",
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-store",
+            },
         )
-        response.headers["Cache-Control"] = "no-store"  # CHANGED: prevent partial/broken download caching.
         response.call_on_close(lambda: cleanup_work_dir(work_dir))
         return response
 
@@ -1547,4 +1611,4 @@ if __name__ == "__main__":
     print(f"Alternative: http://localhost:{port}")
     print("Supported platforms: YouTube, Facebook, TikTok, Twitter/X, Instagram")
     print("=" * 50 + "\n")
-    app.run(debug=debug, host="0.0.0.0", port=port)
+    app.run(debug=debug, threaded=True, host="0.0.0.0", port=port)

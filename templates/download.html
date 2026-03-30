@@ -121,10 +121,10 @@
         let metadataDebounceId = null;
         let statusTimeoutId = null;
         let retryCountdownId = null;
-        let progressIntervalId = null;
         let isDownloading = false;
         let activeMetadataRequest = 0;
         let latestMetadata = null;
+        let currentFileName = 'video.mp4';
 
         function goBack() {
             window.location.href = '{{ url_for("home") }}';
@@ -272,6 +272,9 @@
             uploader.textContent = metadata.uploader || 'Unknown uploader';
             duration.textContent = `Duration: ${formatDuration(Number(metadata.duration))}`;
             previewCard.classList.remove('is-hidden');
+            const rawTitle = (metadata.title || 'video').trim();
+            const sanitizedTitle = rawTitle.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+            currentFileName = `${sanitizedTitle || 'video'}.mp4`;
 
             selector.innerHTML = '';
             const formats = Array.isArray(metadata.formats) ? metadata.formats : [];
@@ -399,41 +402,9 @@
             section.classList.remove('is-hidden');
             section.classList.toggle('error', isError);
             status.textContent = statusLabel;
+            fill.classList.toggle('error', isError);
             fill.style.width = `${Math.max(0, Math.min(100, percentValue))}%`;
             percent.textContent = `${Math.max(0, Math.min(100, Math.round(percentValue)))}%`;
-        }
-
-        function stopProgressSimulation() {
-            if (progressIntervalId) {
-                clearInterval(progressIntervalId);
-                progressIntervalId = null;
-            }
-        }
-
-        function startProgressSimulation() {
-            stopProgressSimulation();
-            const startedAt = Date.now();
-            setProgressState('Preparing...', 0, false);
-
-            progressIntervalId = setInterval(() => {
-                const elapsed = Date.now() - startedAt;
-                const clamped = Math.min(3000, elapsed);
-                const progress = (clamped / 3000) * 90;
-                const label = elapsed < 700 ? 'Preparing...' : 'Downloading...';
-                setProgressState(label, progress, false);
-                if (progress >= 90) {
-                    stopProgressSimulation();
-                }
-            }, 120);
-        }
-
-        function completeProgress(success) {
-            stopProgressSimulation();
-            if (success) {
-                setProgressState('Done!', 100, false);
-            } else {
-                setProgressState('Error', 100, true);
-            }
         }
 
         function saveDownloadHistory(entry) {
@@ -484,7 +455,7 @@
 
             isDownloading = true;
             setDownloadingState(true);
-            startProgressSimulation();
+            setProgressState('Connecting...', 0, false);
 
             try {
                 const response = await fetch(API_DOWNLOAD_URL, {
@@ -494,7 +465,7 @@
                 });
 
                 if (response.status === 429) {
-                    completeProgress(false);
+                    setProgressState('Rate limited', 100, true);
                     let retryAfter = 60;
                     try {
                         const ratePayload = await response.json();
@@ -509,21 +480,42 @@
                 }
 
                 if (!response.ok) {
-                    completeProgress(false);
+                    setProgressState('Error', 100, true);
                     showError(await extractErrorMessage(response));
                     return;
                 }
 
-                const blob = await response.blob();
+                const contentLength = response.headers.get('Content-Length');
+                const total = contentLength ? parseInt(contentLength, 10) : null;
+                const reader = response.body.getReader();
+                const chunks = [];
+                let received = 0;
+                setProgressState('Downloading...', 0, false);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    chunks.push(value);
+                    received += value.length;
+                    if (total) {
+                        const pct = Math.min(99, Math.round((received / total) * 100));
+                        setProgressState(`Downloading... ${pct}%`, pct, false);
+                    }
+                }
+
+                setProgressState('Saving...', 100, false);
+                const blob = new Blob(chunks, { type: 'video/mp4' });
                 if (!blob || blob.size === 0) {
-                    completeProgress(false);
+                    setProgressState('Error', 100, true);
                     showError('Download failed: empty file received.');
                     return;
                 }
 
                 const downloadUrl = window.URL.createObjectURL(blob);
                 const anchor = document.createElement('a');
-                const filename = getFilenameFromDisposition(response.headers.get('Content-Disposition'));
+                const filename = currentFileName || 'video.mp4';
                 anchor.href = downloadUrl;
                 anchor.download = filename;
                 document.body.appendChild(anchor);
@@ -531,7 +523,7 @@
                 document.body.removeChild(anchor);
                 window.URL.revokeObjectURL(downloadUrl);
 
-                completeProgress(true);
+                setProgressState('Done!', 100, false);
                 showSuccess('Download started successfully.');
 
                 saveDownloadHistory(
@@ -545,7 +537,7 @@
                     }
                 );
             } catch (_error) {
-                completeProgress(false);
+                setProgressState('Error', 100, true);
                 showError('Network error. Please check your connection and try again.');
             } finally {
                 isDownloading = false;

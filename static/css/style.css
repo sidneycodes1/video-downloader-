@@ -12,6 +12,7 @@
 body {
     font-family: 'Arial', sans-serif;
     overflow-x: hidden;
+    min-width: 320px;
 }
 
 /* ===================================
@@ -122,7 +123,7 @@ body {
 }
 
 .title {
-    font-size: 72px;
+    font-size: clamp(2.2rem, 7vw, 72px);
     font-weight: bold;
     color: white;
     margin-bottom: 15px;
@@ -131,7 +132,7 @@ body {
 }
 
 .subtitle {
-    font-size: 24px;
+    font-size: clamp(1.05rem, 2.5vw, 24px);
     color: rgba(255, 255, 255, 0.95);
     margin-bottom: 80px;
     text-align: center;
@@ -353,10 +354,6 @@ body {
     fill: white;
 }
 
-.youtube-platform {
-    background: #ff0000;
-}
-
 /* Format Selection */
 .format-section {
     width: 100%;
@@ -565,6 +562,11 @@ body {
     background: linear-gradient(90deg, #facc15 0%, #f97316 100%);
     border-radius: 999px;
     transition: width 0.2s ease;
+}
+
+.progress-fill.error,
+.progress-bar.error {
+    background: rgba(239, 68, 68, 0.9);
 }
 
 .progress-percent {
@@ -829,6 +831,9 @@ body {
     font-size: 13px;
     font-weight: 700;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* ===================================
@@ -887,6 +892,7 @@ body {
 
     .download-top-row {
         margin-bottom: 16px;
+        gap: 12px;
     }
 
     .back-button {
@@ -913,7 +919,7 @@ body {
     .input-section {
         flex-direction: column;
         gap: 20px;
-        max-width: 90%;
+        max-width: 100%;
     }
 
     .input-wrapper {
@@ -933,6 +939,13 @@ body {
     .download-button {
         width: 60px;
         height: 60px;
+    }
+
+    .preview-card,
+    .format-selector-section,
+    .download-progress,
+    .error-message {
+        max-width: 100%;
     }
 
     .error-message {
@@ -977,6 +990,11 @@ body {
         height: 180px;
     }
 
+    .history-download-again {
+        width: 100%;
+        text-align: center;
+    }
+
     .footer-text {
         font-size: 22px;
     }
@@ -1015,13 +1033,17 @@ body {
     }
 
     .platforms {
-        flex-direction: column;
-        gap: 25px;
+        width: min(100%, 280px);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-bottom: 28px;
     }
 
     .platform-icon {
-        width: 100px;
-        height: 100px;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        height: auto;
     }
 
     .platform-icon svg {
@@ -1037,6 +1059,15 @@ body {
 
     .input-box::placeholder {
         font-size: 16px;
+    }
+
+    .download-top-row {
+        width: 100%;
+    }
+
+    .download-top-row .nav-link {
+        font-size: 13px;
+        padding: 8px 12px;
     }
 
     .footer-text {
@@ -1071,5 +1102,18 @@ body {
 
     .history-thumb {
         height: 150px;
+    }
+
+    .history-header {
+        gap: 10px;
+    }
+
+    .history-clear-btn {
+        width: 100%;
+    }
+
+    .platform-label {
+        letter-spacing: 2px;
+        font-size: 13px;
     }
 }
