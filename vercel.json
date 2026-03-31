@@ -6,6 +6,12 @@
       "use": "@vercel/python"
     }
   ],
+  "functions": {
+    "vid.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "routes": [
     {
       "src": "/(.*)",

@@ -5,3 +5,4 @@ redis==5.2.1
 # TikTok support requires yt-dlp 2024.x or newer. Run:
 # pip install -U yt-dlp   to upgrade if downloads fail.
 yt-dlp>=2024.12.23
+boto3>=1.34.0

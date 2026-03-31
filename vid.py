@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import importlib
 import ipaddress
 import json  # NEW FEATURE: Download Scheduler
 import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -19,7 +24,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import yt_dlp
 from yt_dlp import version as yt_dlp_version  # FIXED: TIKTOK
-from flask import Flask, Response, jsonify, make_response, render_template, request, send_file, stream_with_context
+from flask import Flask, Response, g, jsonify, make_response, render_template, request, send_file, stream_with_context
 from flask_cors import CORS
 from werkzeug.exceptions import TooManyRequests
 from yt_dlp.utils import DownloadError
@@ -112,6 +117,22 @@ except ModuleNotFoundError:
 
             return decorator
 
+try:
+    import redis  # type: ignore
+
+    REDIS_AVAILABLE = True
+except ModuleNotFoundError:
+    REDIS_AVAILABLE = False
+
+try:
+    import boto3  # type: ignore
+    from botocore.exceptions import BotoCoreError, ClientError  # type: ignore
+
+    BOTO3_AVAILABLE = True
+except ModuleNotFoundError:
+    BOTO3_AVAILABLE = False
+    BotoCoreError = ClientError = Exception  # type: ignore
+
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -173,12 +194,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
+DEFAULT_ACCEPT_LANGUAGE = os.getenv("YTDLP_ACCEPT_LANGUAGE", "en-US,en;q=0.9").strip() or "en-US,en;q=0.9"
+
 SUPPORTED_PLATFORM_DOMAINS: dict[str, tuple[str, ...]] = {
-    "youtube": ("youtube.com", "youtu.be", "youtube-nocookie.com"),
-    "instagram": ("instagram.com", "instagr.am"),
-    "tiktok": ("tiktok.com", "douyin.com"),
-    "facebook": ("facebook.com", "fb.watch"),
-    "twitter": ("x.com", "twitter.com", "t.co"),
+    "youtube": ("youtube.com", "youtu.be"),
+    "instagram": ("instagram.com",),
+    "tiktok": ("tiktok.com",),
+    "twitter": ("x.com", "twitter.com"),
 }
 
 PLATFORM_ALIASES = {
@@ -198,10 +220,11 @@ QUALITY_HEIGHTS: dict[str, int | None] = {
     "360": 360,
 }
 
-DOWNLOAD_RATE_LIMIT = "5 per minute"
+DOWNLOAD_RATE_LIMIT = os.getenv("DOWNLOAD_RATE_LIMIT", "5 per minute").strip() or "5 per minute"
 RATE_LIMIT_STORAGE_URI = os.getenv("REDIS_URL", "").strip() or "memory://"
 WORKSPACE_CLEANUP_INTERVAL_SECONDS = _env_int("WORKSPACE_CLEANUP_INTERVAL_SECONDS", 300)
 WORK_DIR_TTL_SECONDS = _env_int("WORK_DIR_TTL_SECONDS", 3600)
+API_KEY = os.getenv("API_KEY", "").strip()
 LAST_WORKSPACE_CLEANUP = 0.0
 WORKSPACE_CLEANUP_LOCK = threading.Lock()
 RUNTIME_START_LOCK = threading.Lock()
@@ -221,7 +244,19 @@ KNOWN_MEDIA_EXTENSIONS = {
 }
 
 METADATA_ALLOWED_EXTENSIONS = {"mp4", "webm", "mkv"}
-ENDPOINTS_LIST = ["/api/health", "/api/download", "/api/metadata", "/api/schedule", "/api/debug/ydlp-version", "/history", "/schedule"]  # FIXED: TIKTOK
+ENDPOINTS_LIST = [
+    "/api/health",
+    "/api/download",
+    "/api/download/async",
+    "/api/jobs/<job_id>",
+    "/api/metadata",
+    "/api/progress/<download_id>",
+    "/api/worker/process",
+    "/api/schedule",
+    "/api/debug/ydlp-version",
+    "/history",
+    "/schedule",
+]  # FIXED: TIKTOK
 FACEBOOK_QUERY_PARAMS_TO_DROP = {"mibextid", "ref", "refsrc", "sfnsn", "__tn__"}  # CHANGED
 DESKTOP_CHROME_120_UA = (  # CHANGED: shared desktop Chrome 120 user-agent.
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -256,7 +291,29 @@ FACEBOOK_RETRY_ERROR_TOKENS = (  # CHANGED: Facebook retry on format/login style
     "checkpoint",
     "cookie",
 )
-METADATA_TIMEOUT_SECONDS = 20  # CHANGED: metadata hard timeout requirement.
+METADATA_TIMEOUT_SECONDS = _env_int("METADATA_TIMEOUT_SECONDS", 35)  # CHANGED: metadata hard timeout requirement.
+DOWNLOAD_TIMEOUT_SECONDS = _env_int("DOWNLOAD_TIMEOUT_SECONDS", 180)
+ASYNC_DOWNLOAD_TIMEOUT_SECONDS = _env_int("ASYNC_DOWNLOAD_TIMEOUT_SECONDS", 300)
+DOWNLOAD_PRECHECK = _env_bool("DOWNLOAD_PRECHECK", True)
+MAX_DOWNLOAD_BYTES = _env_int("MAX_DOWNLOAD_BYTES", 75 * 1024 * 1024)
+PROGRESS_TTL_SECONDS = _env_int("PROGRESS_TTL_SECONDS", 3600)
+YTDLP_AUTOUPDATE_ENABLED = _env_bool("YTDLP_AUTOUPDATE", True)
+YTDLP_AUTOUPDATE_INTERVAL_SECONDS = _env_int("YTDLP_AUTOUPDATE_INTERVAL_SECONDS", 6 * 3600)
+YTDLP_AUTOUPDATE_TIMEOUT_SECONDS = _env_int("YTDLP_AUTOUPDATE_TIMEOUT_SECONDS", 45)
+YTDLP_UPDATE_TARGET = os.getenv("YTDLP_UPDATE_TARGET", "").strip() or str(Path(tempfile.gettempdir()) / "yt_dlp_runtime")
+ASYNC_DOWNLOAD_ENABLED = _env_bool("ASYNC_DOWNLOAD_ENABLED", True)
+QUEUE_NAME = os.getenv("QUEUE_NAME", "video_download_jobs").strip() or "video_download_jobs"
+QUEUE_WORKER_SECRET = os.getenv("QUEUE_WORKER_SECRET", "").strip()
+QUEUE_JOB_TTL_SECONDS = _env_int("QUEUE_JOB_TTL_SECONDS", 24 * 3600)
+QUEUE_POLL_LIMIT = _env_int("QUEUE_POLL_LIMIT", 1)
+STORAGE_PROVIDER = os.getenv("STORAGE_PROVIDER", "s3").strip().lower() or "s3"
+S3_BUCKET = os.getenv("S3_BUCKET", "").strip()
+S3_REGION = os.getenv("S3_REGION", "").strip()
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "").strip()
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "").strip()
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "").strip()
+S3_PUBLIC_BASE_URL = os.getenv("S3_PUBLIC_BASE_URL", "").strip()
+S3_SIGNED_URL_EXPIRES = _env_int("S3_SIGNED_URL_EXPIRES", 3600)
 SCHEDULE_MAX_DAYS_AHEAD = 7  # NEW FEATURE: Download Scheduler
 SCHEDULE_POLL_SECONDS = 60  # NEW FEATURE: Download Scheduler
 SCHEDULED_JOBS_LOCK = threading.Lock()  # NEW FEATURE: Download Scheduler
@@ -284,12 +341,53 @@ FALLBACK_TIMEZONE_OFFSETS = {
     "America/Los_Angeles": timezone(timedelta(hours=-8), name="America/Los_Angeles"),
 }
 
+BASE_HTTP_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+COOKIE_TMP_DIR = Path(tempfile.gettempdir()) / "yt_dlp_cookies"
+COOKIE_TMP_DIR.mkdir(parents=True, exist_ok=True)
+COOKIE_FILE_CACHE: dict[str, Path] = {}
+COOKIE_FILE_LOCK = threading.Lock()
+
+PROGRESS_CACHE: dict[str, dict] = {}
+PROGRESS_CACHE_LOCK = threading.Lock()
+REDIS_CLIENT = None
+REDIS_LOCK = threading.Lock()
+
+YTDLP_AUTOUPDATE_LOCK = threading.Lock()
+YTDLP_AUTOUPDATED_AT: float | None = None
+
 
 class APIError(Exception):
     def __init__(self, message: str, status_code: int = 400):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
+
+def error_response(message: str, status_code: int, extra: dict | None = None):
+    payload = {
+        "success": False,
+        "error": message,
+        "code": status_code,
+        "request_id": current_request_id(),
+    }
+    if extra:
+        payload.update(extra)
+    return jsonify(payload), status_code
+
+
+def success_response(payload: dict, status_code: int = 200):
+    envelope = {"success": True, "request_id": current_request_id()}
+    envelope.update(payload)
+    return jsonify(envelope), status_code
 
 
 @dataclass(frozen=True)
@@ -319,6 +417,299 @@ class ScheduleRequest:
 def iso_utc(value: datetime | None = None) -> str:
     current = value or datetime.now(timezone.utc)  # NEW FEATURE: Download Scheduler
     return current.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def build_http_headers(
+    user_agent: str,
+    *,
+    referer: str | None = None,
+    origin: str | None = None,
+    accept_language: str | None = None,
+) -> dict:
+    headers = dict(BASE_HTTP_HEADERS)
+    headers["User-Agent"] = user_agent
+    headers["Accept-Language"] = accept_language or DEFAULT_ACCEPT_LANGUAGE
+    if referer:
+        headers["Referer"] = referer
+    if origin:
+        headers["Origin"] = origin
+    return headers
+
+
+def get_redis_client():
+    global REDIS_CLIENT
+    if REDIS_CLIENT is not None:
+        return REDIS_CLIENT
+    if not REDIS_AVAILABLE:
+        return None
+
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if not redis_url:
+        return None
+
+    with REDIS_LOCK:
+        if REDIS_CLIENT is not None:
+            return REDIS_CLIENT
+        try:
+            REDIS_CLIENT = redis.from_url(redis_url, decode_responses=True)
+        except Exception:
+            logger.exception("Failed to initialize Redis client.")
+            REDIS_CLIENT = None
+    return REDIS_CLIENT
+
+
+def set_progress(download_id: str, payload: dict) -> None:
+    payload = dict(payload)
+    payload["updated_at"] = iso_utc()
+    cache_key = f"download_progress:{download_id}"
+    client = get_redis_client()
+    if client:
+        try:
+            client.setex(cache_key, PROGRESS_TTL_SECONDS, json.dumps(payload))
+            return
+        except Exception:
+            logger.exception("Failed to write download progress to Redis.")
+
+    with PROGRESS_CACHE_LOCK:
+        payload["_expires_at"] = time.time() + PROGRESS_TTL_SECONDS
+        PROGRESS_CACHE[download_id] = payload
+
+
+def get_progress(download_id: str) -> dict | None:
+    cache_key = f"download_progress:{download_id}"
+    client = get_redis_client()
+    if client:
+        try:
+            raw = client.get(cache_key)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            logger.exception("Failed to read download progress from Redis.")
+
+    with PROGRESS_CACHE_LOCK:
+        payload = PROGRESS_CACHE.get(download_id)
+        if not payload:
+            return None
+        if payload.get("_expires_at", 0) < time.time():
+            PROGRESS_CACHE.pop(download_id, None)
+            return None
+        payload.pop("_expires_at", None)
+        return payload
+
+
+def delete_progress(download_id: str) -> None:
+    cache_key = f"download_progress:{download_id}"
+    client = get_redis_client()
+    if client:
+        try:
+            client.delete(cache_key)
+        except Exception:
+            logger.exception("Failed to delete download progress from Redis.")
+    with PROGRESS_CACHE_LOCK:
+        PROGRESS_CACHE.pop(download_id, None)
+
+
+def _redis_required() -> None:
+    if not REDIS_AVAILABLE:
+        raise APIError("Redis support is unavailable on this server.", 500)
+    if not os.getenv("REDIS_URL", "").strip():
+        raise APIError("Redis is required for async downloads but REDIS_URL is not configured.", 500)
+
+
+def set_job_status(job_id: str, payload: dict) -> None:
+    _redis_required()
+    client = get_redis_client()
+    if not client:
+        raise APIError("Redis is unavailable for job status.", 500)
+    cache_key = f"download_job:{job_id}"
+    body = dict(payload)
+    body["updated_at"] = iso_utc()
+    try:
+        client.setex(cache_key, QUEUE_JOB_TTL_SECONDS, json.dumps(body))
+    except Exception:
+        logger.exception("Failed to update job status.")
+
+
+def get_job_status(job_id: str) -> dict | None:
+    _redis_required()
+    client = get_redis_client()
+    if not client:
+        return None
+    cache_key = f"download_job:{job_id}"
+    try:
+        raw = client.get(cache_key)
+        return json.loads(raw) if raw else None
+    except Exception:
+        logger.exception("Failed to read job status.")
+        return None
+
+
+def enqueue_job(payload: dict) -> str:
+    _redis_required()
+    client = get_redis_client()
+    if not client:
+        raise APIError("Redis is unavailable for queueing.", 500)
+    job_id = payload.get("job_id") or uuid.uuid4().hex
+    payload["job_id"] = job_id
+    payload["queued_at"] = iso_utc()
+    payload["status"] = "queued"
+    try:
+        client.rpush(QUEUE_NAME, json.dumps(payload))
+    except Exception:
+        logger.exception("Failed to enqueue job.")
+        raise APIError("Failed to enqueue download job.", 500)
+    set_job_status(job_id, payload)
+    return job_id
+
+
+def dequeue_job() -> dict | None:
+    _redis_required()
+    client = get_redis_client()
+    if not client:
+        return None
+    try:
+        raw = client.lpop(QUEUE_NAME)
+        return json.loads(raw) if raw else None
+    except Exception:
+        logger.exception("Failed to dequeue job.")
+        return None
+
+
+def build_storage_client():
+    if not BOTO3_AVAILABLE:
+        raise APIError("boto3 is required for object storage uploads.", 500)
+    if not S3_BUCKET or not S3_ACCESS_KEY_ID or not S3_SECRET_ACCESS_KEY:
+        raise APIError("S3 credentials are not configured.", 500)
+    session = boto3.session.Session(
+        aws_access_key_id=S3_ACCESS_KEY_ID,
+        aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+        region_name=S3_REGION or None,
+    )
+    return session.client("s3", endpoint_url=S3_ENDPOINT_URL or None)
+
+
+def upload_to_object_storage(file_path: Path, key: str) -> str:
+    if STORAGE_PROVIDER != "s3":
+        raise APIError("Unsupported storage provider.", 500)
+    client = build_storage_client()
+    try:
+        client.upload_file(str(file_path), S3_BUCKET, key)
+    except (BotoCoreError, ClientError):
+        logger.exception("Failed to upload to object storage.")
+        raise APIError("Failed to upload file to storage.", 500)
+
+    if S3_PUBLIC_BASE_URL:
+        return f"{S3_PUBLIC_BASE_URL.rstrip('/')}/{key}"
+
+    try:
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=S3_SIGNED_URL_EXPIRES,
+        )
+    except (BotoCoreError, ClientError):
+        logger.exception("Failed to create presigned URL.")
+        raise APIError("Failed to create download URL.", 500)
+
+
+def _write_cookie_file_bytes(prefix: str, payload: bytes) -> Path:
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    safe_prefix = re.sub(r"[^A-Za-z0-9_-]+", "_", prefix) or "cookies"
+    target = COOKIE_TMP_DIR / f"{safe_prefix}_{digest}.txt"
+    if not target.exists():
+        target.write_bytes(payload)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
+    return target
+
+
+def resolve_cookiefile(platform: str) -> str | None:
+    platform_key = normalize_platform(platform)
+    cache_key = platform_key or "default"
+    with COOKIE_FILE_LOCK:
+        cached = COOKIE_FILE_CACHE.get(cache_key)
+        if cached and cached.exists():
+            return str(cached)
+
+        env_candidates = [
+            (f"YTDLP_{platform_key.upper()}_COOKIES_B64", True),
+            (f"YTDLP_{platform_key.upper()}_COOKIES_RAW", False),
+            ("YTDLP_COOKIES_B64", True),
+            ("YTDLP_COOKIES_RAW", False),
+        ]
+
+        for env_name, is_b64 in env_candidates:
+            raw_value = os.getenv(env_name, "").strip()
+            if not raw_value:
+                continue
+            try:
+                payload = base64.b64decode(raw_value) if is_b64 else raw_value.encode("utf-8")
+            except Exception:
+                logger.warning("Failed to decode cookies from %s.", env_name)
+                continue
+
+            cookie_path = _write_cookie_file_bytes(cache_key, payload)
+            COOKIE_FILE_CACHE[cache_key] = cookie_path
+            return str(cookie_path)
+
+        cookie_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+        if cookie_file:
+            cookie_path = Path(cookie_file)
+            if cookie_path.exists():
+                COOKIE_FILE_CACHE[cache_key] = cookie_path
+                return str(cookie_path)
+
+    return None
+
+
+def ensure_yt_dlp_updated() -> None:
+    if not YTDLP_AUTOUPDATE_ENABLED:
+        return
+
+    global YTDLP_AUTOUPDATED_AT
+    now = time.time()
+    if YTDLP_AUTOUPDATED_AT and (now - YTDLP_AUTOUPDATED_AT) < YTDLP_AUTOUPDATE_INTERVAL_SECONDS:
+        return
+
+    with YTDLP_AUTOUPDATE_LOCK:
+        now = time.time()
+        if YTDLP_AUTOUPDATED_AT and (now - YTDLP_AUTOUPDATED_AT) < YTDLP_AUTOUPDATE_INTERVAL_SECONDS:
+            return
+
+        target_dir = Path(YTDLP_UPDATE_TARGET)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "--no-cache-dir",
+            "--target",
+            str(target_dir),
+            "yt-dlp",
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=YTDLP_AUTOUPDATE_TIMEOUT_SECONDS,
+            )
+            if result.returncode != 0:
+                logger.warning("yt-dlp auto-update failed: %s", result.stderr.strip()[:500])
+            else:
+                if str(target_dir) not in sys.path:
+                    sys.path.insert(0, str(target_dir))
+                importlib.invalidate_caches()
+                importlib.reload(yt_dlp)
+                logger.info("yt-dlp auto-update completed using target %s.", target_dir)
+        except Exception:
+            logger.exception("yt-dlp auto-update attempt failed.")
+        finally:
+            YTDLP_AUTOUPDATED_AT = time.time()
 
 
 def get_scheduled_jobs_file_path() -> Path:
@@ -418,10 +809,7 @@ def parse_schedule_datetime(scheduled_at_raw: str, timezone_label: str) -> tuple
 
 
 def parse_schedule_payload() -> ScheduleRequest:
-    if not request.is_json:
-        raise APIError("Request body must be JSON.", 400)  # NEW FEATURE: Download Scheduler
-
-    data = request.get_json(silent=True)
+    data = request.get_json(silent=True, force=True)
     if not isinstance(data, dict):
         raise APIError("Malformed JSON payload.", 400)
 
@@ -471,6 +859,7 @@ def execute_scheduled_download(job: dict) -> None:
     work_dir: Path | None = None  # NEW FEATURE: Download Scheduler
     try:
         maybe_cleanup_stale_work_dirs()
+        ensure_yt_dlp_updated()
         scheduled_job = DownloadRequest(
             url=str(job.get("url", "")),
             platform=str(job.get("platform", "")),
@@ -750,13 +1139,17 @@ def extract_info_with_options(video_url: str, ydl_opts: dict, *, download: bool)
 
 
 def extract_info_with_timeout(video_url: str, ydl_opts: dict, *, download: bool, timeout_seconds: int):
+    if timeout_seconds <= 0:
+        return extract_info_with_options(video_url, ydl_opts, download=download)
+    ensure_yt_dlp_updated()
     with ThreadPoolExecutor(max_workers=1) as executor:  # CHANGED: metadata timeout enforcement.
         future = executor.submit(extract_info_with_options, video_url, ydl_opts, download=download)
         try:
             return future.result(timeout=timeout_seconds)
         except FuturesTimeoutError as error:
             future.cancel()
-            raise APIError("Metadata request timed out. Please try again.", 504) from error
+            message = "Download timed out. Please try again." if download else "Metadata request timed out. Please try again."
+            raise APIError(message, 504) from error
 
 
 def get_client_ip() -> str:
@@ -782,6 +1175,8 @@ def validate_supported_url(raw_url: str) -> tuple[str, str]:
         raise APIError("Please provide a video URL.", 400)
     if len(raw_url) > 2048:
         raise APIError("URL is too long.", 400)
+    if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", raw_url, flags=re.IGNORECASE):
+        raise APIError("Invalid URL format. Ensure the link starts with http:// or https://", 400)
 
     hostname = extract_hostname(raw_url)
     if is_private_or_local_host(hostname):
@@ -790,7 +1185,7 @@ def validate_supported_url(raw_url: str) -> tuple[str, str]:
     detected_platform = detect_platform(hostname)
     if not detected_platform:
         raise APIError(
-            "Unsupported platform. Use a YouTube, TikTok, Instagram, Facebook, or X link.",
+            "Unsupported platform. Use a YouTube, TikTok, Instagram, or X/Twitter link.",
             400,
         )
 
@@ -799,11 +1194,12 @@ def validate_supported_url(raw_url: str) -> tuple[str, str]:
     return normalized_url, detected_platform
 
 
-def parse_download_payload() -> DownloadRequest:
-    if not request.is_json:
-        raise APIError("Request body must be JSON.", 400)
+def current_request_id() -> str:
+    return getattr(g, "request_id", "unknown")
 
-    data = request.get_json(silent=True)
+
+def parse_download_payload() -> DownloadRequest:
+    data = request.get_json(silent=True, force=True)
     if not isinstance(data, dict):
         raise APIError("Malformed JSON payload.", 400)
 
@@ -842,10 +1238,7 @@ def parse_download_payload() -> DownloadRequest:
 
 
 def parse_metadata_payload() -> MetadataRequest:
-    if not request.is_json:
-        raise APIError("Request body must be JSON.", 400)
-
-    data = request.get_json(silent=True)
+    data = request.get_json(silent=True, force=True)
     if not isinstance(data, dict):
         raise APIError("Malformed JSON payload.", 400)
 
@@ -862,8 +1255,12 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
-        "retries": 5,
-        "fragment_retries": 5,
+        "retries": _env_int("YTDLP_RETRIES", 5),
+        "fragment_retries": _env_int("YTDLP_FRAGMENT_RETRIES", 5),
+        "extractor_retries": _env_int("YTDLP_EXTRACTOR_RETRIES", 3),
+        "retry_sleep": lambda retry: min(2 ** retry, 10),
+        "sleep_interval": _env_int("YTDLP_SLEEP_INTERVAL", 0),
+        "max_sleep_interval": _env_int("YTDLP_MAX_SLEEP_INTERVAL", 3),
         "skip_unavailable_fragments": True,
         "ignoreerrors": False,
         "nocheckcertificate": False,
@@ -872,28 +1269,34 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
     }
 
     browser = os.getenv("YTDLP_COOKIES_BROWSER", "").strip().lower()
-    cookie_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+    cookie_file = resolve_cookiefile(normalized_platform)
 
     if normalized_platform == "youtube":
         opts["format"] = selected_format or "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         existing_extractors = opts.get("extractor_args", {})
         youtube_args = dict(existing_extractors.get("youtube", {}))
         if "player_client" not in youtube_args:
-            youtube_args["player_client"] = ["android", "web"]
+            env_clients = os.getenv("YTDLP_YOUTUBE_PLAYER_CLIENTS", "").strip()
+            if env_clients:
+                youtube_args["player_client"] = [item.strip() for item in env_clients.split(",") if item.strip()]
+            else:
+                youtube_args["player_client"] = ["android", "web", "ios"]
         if "skip" not in youtube_args:
             youtube_args["skip"] = ["dash", "hls"]
+        if "player_skip" not in youtube_args:
+            youtube_args["player_skip"] = ["webpage"]
         existing_extractors["youtube"] = youtube_args
         opts["extractor_args"] = existing_extractors
         opts["merge_output_format"] = "mp4"
-        existing_headers = dict(opts.get("http_headers", {}))
-        if "User-Agent" not in existing_headers:
-            existing_headers["User-Agent"] = DESKTOP_CHROME_120_UA
-        if "Accept-Language" not in existing_headers:
-            existing_headers["Accept-Language"] = "en-US,en;q=0.9"
-        opts["http_headers"] = existing_headers
+        opts["http_headers"] = build_http_headers(
+            DESKTOP_CHROME_120_UA,
+            referer="https://www.youtube.com/",
+            origin="https://www.youtube.com",
+        )
+        opts["socket_timeout"] = _env_int("YTDLP_SOCKET_TIMEOUT", 30)
     elif normalized_platform == "facebook":
         opts["format"] = "best"  # CHANGED: Facebook ignores format_id by requirement.
-        opts["http_headers"] = {"User-Agent": DESKTOP_CHROME_120_UA}
+        opts["http_headers"] = build_http_headers(DESKTOP_CHROME_120_UA, referer="https://www.facebook.com/")
         opts["extractor_args"] = {"facebook": {"app_id": FACEBOOK_EXTRACTOR_APP_ID}}
         opts["socket_timeout"] = 30
         if browser:
@@ -908,10 +1311,7 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
             "skip_unavailable_fragments": True,
             "format": TIKTOK_FORMAT_SELECTOR,
             "merge_output_format": "mp4",
-            "http_headers": {
-                "User-Agent": TIKTOK_ANDROID_UA,
-                "Referer": TIKTOK_REFERER,
-            },
+            "http_headers": build_http_headers(TIKTOK_ANDROID_UA, referer=TIKTOK_REFERER, origin="https://www.tiktok.com"),
             "extractor_args": TIKTOK_EXTRACTOR_ARGS,
             "cookiefile": None,
         }
@@ -924,8 +1324,8 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
         return tiktok_opts
     elif normalized_platform == "instagram":
         opts["format"] = selected_format or "best"
-        opts["http_headers"] = {"User-Agent": INSTAGRAM_LINUX_UA}
-        opts["socket_timeout"] = 25
+        opts["http_headers"] = build_http_headers(INSTAGRAM_LINUX_UA, referer="https://www.instagram.com/")
+        opts["socket_timeout"] = _env_int("YTDLP_SOCKET_TIMEOUT", 25)
         if browser:
             opts["cookiesfrombrowser"] = (browser,)
     elif normalized_platform == "twitter":
@@ -933,15 +1333,15 @@ def get_platform_ydl_opts(platform: str, format_id: str | None = None) -> dict:
             opts["format"] = selected_format
         if "format" not in opts:
             opts["format"] = "best[ext=mp4]/best"
-        opts["http_headers"] = {"User-Agent": DESKTOP_CHROME_120_UA}
+        opts["http_headers"] = build_http_headers(DESKTOP_CHROME_120_UA, referer="https://x.com/")
         opts["extractor_args"] = {"twitter": {"api": "graphql"}}
         opts["socket_timeout"] = 20
     else:
         opts["format"] = selected_format or "best"
-        opts["http_headers"] = {"User-Agent": DESKTOP_CHROME_120_UA}
+        opts["http_headers"] = build_http_headers(DESKTOP_CHROME_120_UA)
         opts["socket_timeout"] = 30
 
-    if cookie_file:
+    if cookie_file and normalized_platform in {"youtube", "instagram"}:
         opts["cookiefile"] = cookie_file
 
     if _env_bool("YTDLP_FORCE_IPV4", True):
@@ -958,6 +1358,88 @@ def build_format_selector(download_type: str, quality: str) -> str:
     if max_height is None:
         return "best[ext=mp4]/best"
     return f"best[height<={max_height}][ext=mp4]/best[height<={max_height}]/best"
+
+
+def estimate_download_size(info: dict | None, format_id: str | None, download_type: str, quality: str) -> int | None:
+    if not isinstance(info, dict):
+        return None
+
+    formats = info.get("formats")
+    if isinstance(formats, list) and formats:
+        if format_id:
+            for fmt in formats:
+                if str(fmt.get("format_id")) == format_id:
+                    size = fmt.get("filesize") or fmt.get("filesize_approx")
+                    try:
+                        return int(size) if size else None
+                    except (TypeError, ValueError):
+                        return None
+
+        candidates = list(formats)
+        if download_type == "audio":
+            candidates = [fmt for fmt in candidates if fmt.get("vcodec") in {None, "none"}]
+        else:
+            max_height = QUALITY_HEIGHTS.get(quality)
+            if max_height:
+                candidates = [
+                    fmt
+                    for fmt in candidates
+                    if isinstance(fmt.get("height"), int) and int(fmt.get("height")) <= max_height
+                ]
+
+        if candidates:
+            candidates.sort(
+                key=lambda fmt: (
+                    fmt.get("filesize") or fmt.get("filesize_approx") or 0,
+                    fmt.get("tbr") or 0,
+                ),
+                reverse=True,
+            )
+            size = candidates[0].get("filesize") or candidates[0].get("filesize_approx")
+            try:
+                return int(size) if size else None
+            except (TypeError, ValueError):
+                return None
+
+    size = info.get("filesize") or info.get("filesize_approx")
+    try:
+        return int(size) if size else None
+    except (TypeError, ValueError):
+        return None
+
+
+def build_fallback_formats(job: DownloadRequest) -> list[str]:
+    if job.download_type == "audio" or job.format_id == "audio-only":
+        return []
+
+    platform = normalize_platform(job.platform)
+    fallbacks: list[str] = []
+
+    if platform == "youtube":
+        fallbacks = [
+            "bestvideo+bestaudio/best",
+            "best[ext=mp4]/best",
+            "best",
+        ]
+    elif platform == "instagram":
+        fallbacks = [
+            "best[ext=mp4]/best",
+            "best",
+        ]
+    elif platform == "tiktok":
+        fallbacks = [
+            "best[ext=mp4]/best",
+            "best",
+        ]
+    else:
+        fallbacks = ["best[ext=mp4]/best", "best"]
+
+    # Remove duplicates while preserving order.
+    unique: list[str] = []
+    for fmt in fallbacks:
+        if fmt not in unique:
+            unique.append(fmt)
+    return unique
 
 
 def should_count_successful_download(response) -> bool:
@@ -1094,7 +1576,12 @@ def build_metadata_formats(info: dict) -> list[dict]:
     return collected[:10]  # CHANGED: metadata option cap.
 
 
-def build_ydl_options(job: DownloadRequest, work_dir: Path, force_format: str | None = None) -> dict:
+def build_ydl_options(
+    job: DownloadRequest,
+    work_dir: Path,
+    force_format: str | None = None,
+    progress_hook=None,
+) -> dict:
     is_audio_request = job.download_type == "audio" or job.format_id == "audio-only"
     selected_format = force_format  # CHANGED
     if not selected_format and job.platform != "facebook" and job.format_id and job.format_id != "audio-only":
@@ -1137,6 +1624,9 @@ def build_ydl_options(job: DownloadRequest, work_dir: Path, force_format: str | 
             }
         ]
 
+    if progress_hook:
+        opts["progress_hooks"] = [progress_hook]
+
     return opts
 
 
@@ -1163,6 +1653,16 @@ def map_download_error(error: Exception, platform: str | None = None, url: str |
     url_value = str(url or "").lower()  # FIXED: TIKTOK
     tiktok_context = platform == "tiktok" or "tiktok" in url_value  # FIXED: TIKTOK
 
+    if "sign in to confirm" in message or "confirm you're not a bot" in message:
+        return APIError(
+            "YouTube requires authentication to confirm you're not a bot. Provide cookies and retry.",
+            403,
+        )
+    if "failed to extract player response" in message or "player response" in message:
+        return APIError(
+            "YouTube extraction failed. Update yt-dlp and provide cookies if required.",
+            403,
+        )
     if tiktok_context and "not available" in message:  # FIXED: TIKTOK
         return APIError("This TikTok video is unavailable or has been deleted.", 410)  # FIXED: TIKTOK
     if tiktok_context and ("unable to find video" in message or "no video formats" in message):  # FIXED: TIKTOK
@@ -1183,8 +1683,8 @@ def map_download_error(error: Exception, platform: str | None = None, url: str |
 
     if platform == "facebook" and ("login required" in message or "checkpoint" in message):
         return APIError("This Facebook video requires login. Only public videos are supported.", 403)  # CHANGED
-    if platform == "instagram" and "login_required" in message:
-        return APIError("This Instagram content requires login. Only public posts are supported.", 403)  # CHANGED
+    if platform == "instagram" and ("login_required" in message or "login required" in message):
+        return APIError("This Instagram content requires login. Provide cookies and retry.", 403)  # CHANGED
     if platform == "twitter" and "could not find tweet" in message:
         return APIError("This tweet/post could not be found. It may be deleted or private.", 404)  # CHANGED
     if "unsupported url" in message or "no suitable extractor" in message:
@@ -1298,6 +1798,28 @@ def ensure_runtime_services_started() -> None:
 @app.before_request
 def before_request_start_services():
     ensure_runtime_services_started()
+    g.request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
+    if request.path.startswith("/api/") and API_KEY:
+        supplied = request.headers.get("X-API-Key") or request.args.get("api_key", "")
+        worker_secret = request.headers.get("X-Worker-Secret") or ""
+        if request.path.startswith("/api/worker/") and QUEUE_WORKER_SECRET:
+            if worker_secret != QUEUE_WORKER_SECRET:
+                raise APIError("Unauthorized", 401)
+            return
+        if supplied != API_KEY:
+            raise APIError("Unauthorized", 401)
+
+
+@app.after_request
+def inject_response_headers(response):
+    request_id = getattr(g, "request_id", None)
+    if request_id:
+        response.headers["X-Request-Id"] = request_id
+    expose = response.headers.get("Access-Control-Expose-Headers", "")
+    expose_values = {value.strip() for value in expose.split(",") if value.strip()}
+    expose_values.update({"X-Request-Id", "X-Download-Id", "Content-Disposition", "Content-Length"})
+    response.headers["Access-Control-Expose-Headers"] = ", ".join(sorted(expose_values))
+    return response
 
 
 @app.route("/")
@@ -1322,7 +1844,7 @@ def schedule_page():
 
 @app.route("/api/health", methods=["GET"])
 def health_check():
-    return jsonify(
+    return success_response(
         {
             "status": "ok",
             "endpoints": ENDPOINTS_LIST,
@@ -1333,7 +1855,7 @@ def health_check():
 
 @app.route("/api/debug/ydlp-version", methods=["GET"])  # FIXED: TIKTOK
 def ydlp_version_debug():  # FIXED: TIKTOK
-    return jsonify({"yt_dlp_version": get_yt_dlp_version(), "tiktok_status": "ok"})  # FIXED: TIKTOK
+    return success_response({"yt_dlp_version": get_yt_dlp_version(), "tiktok_status": "ok"})  # FIXED: TIKTOK
 
 
 @app.route("/api/schedule", methods=["POST"])
@@ -1358,7 +1880,7 @@ def schedule_download():
         jobs.append(new_job)
         save_scheduled_jobs(jobs)
 
-        return jsonify(
+        return success_response(
             {
                 "job_id": new_job["job_id"],
                 "scheduled_at": new_job["scheduled_at"],
@@ -1366,7 +1888,7 @@ def schedule_download():
             }
         )
     except APIError as error:
-        return jsonify({"error": error.message}), error.status_code
+        return error_response(error.message, error.status_code)
 
 
 @app.route("/api/schedule", methods=["GET"])
@@ -1386,15 +1908,15 @@ def list_scheduled_downloads():
         if str(job.get("status")) == "scheduled"
     ]
     pending_jobs.sort(key=lambda item: item.get("scheduled_at", ""))
-    return jsonify({"jobs": pending_jobs})
+    return success_response({"jobs": pending_jobs})
 
 
 @app.route("/api/schedule/<job_id>", methods=["DELETE"])
 def cancel_scheduled_download(job_id: str):
     current = update_scheduled_job(job_id, status="cancelled")  # NEW FEATURE: Download Scheduler
     if not current:
-        return jsonify({"error": "Scheduled job not found."}), 404
-    return jsonify({"job_id": job_id, "status": "cancelled"})
+        return error_response("Scheduled job not found.", 404)
+    return success_response({"job_id": job_id, "status": "cancelled"})
 
 
 @app.route("/api/metadata", methods=["POST"])
@@ -1442,7 +1964,7 @@ def video_metadata():
         except (TypeError, ValueError):
             duration = None
 
-        return jsonify(
+        return success_response(
             {
                 "title": str(info.get("title", "Untitled video")),
                 "thumbnail": select_thumbnail_url(info),  # CHANGED
@@ -1451,18 +1973,19 @@ def video_metadata():
                 "uploader": str(info.get("uploader") or info.get("channel") or "Unknown uploader"),
                 "platform": job.platform,
                 "formats": formats,
+                "estimated_size_bytes": estimate_download_size(info, None, "video", "best"),
             }
         )
 
     except APIError as error:
-        return jsonify({"error": error.message}), error.status_code
+        return error_response(error.message, error.status_code)
     except DownloadError as error:
         mapped_error = map_download_error(  # FIXED: TIKTOK
             error,  # FIXED: TIKTOK
             platform=job.platform if "job" in locals() else None,  # FIXED: TIKTOK
             url=job.url if "job" in locals() else None,  # FIXED: TIKTOK
         )  # FIXED: TIKTOK
-        return jsonify({"error": mapped_error.message}), mapped_error.status_code
+        return error_response(mapped_error.message, mapped_error.status_code)
     except Exception as error:
         logger.exception("Unhandled metadata error")
         mapped_error = map_download_error(  # FIXED: TIKTOK
@@ -1470,17 +1993,20 @@ def video_metadata():
             platform=job.platform if "job" in locals() else None,  # FIXED: TIKTOK
             url=job.url if "job" in locals() else None,  # FIXED: TIKTOK
         )  # FIXED: TIKTOK
-        return jsonify({"error": mapped_error.message}), mapped_error.status_code
+        return error_response(mapped_error.message, mapped_error.status_code)
 
 
 @app.route("/api/download", methods=["POST"])
 @limiter.limit(DOWNLOAD_RATE_LIMIT, deduct_when=should_count_successful_download)
 def download_video():
     work_dir: Path | None = None
+    download_id = uuid.uuid4().hex
 
     try:
         maybe_cleanup_stale_work_dirs()
+        raw_data = request.get_json(silent=True, force=True) or {}
         job = parse_download_payload()
+        force_async = bool(raw_data.get("async")) if isinstance(raw_data, dict) else False
         if job.platform == "tiktok":  # FIXED: TIKTOK
             job = DownloadRequest(  # FIXED: TIKTOK
                 url=normalize_tiktok_url(job.url),  # FIXED: TIKTOK
@@ -1489,8 +2015,91 @@ def download_video():
                 quality=job.quality,  # FIXED: TIKTOK
                 format_id=job.format_id,  # FIXED: TIKTOK
             )  # FIXED: TIKTOK
+        set_progress(
+            download_id,
+            {
+                "status": "queued",
+                "platform": job.platform,
+                "url": job.url,
+            },
+        )
+
+        if DOWNLOAD_PRECHECK:
+            meta_job = MetadataRequest(url=job.url, platform=job.platform)
+            meta_opts = build_metadata_ydl_options(meta_job)
+            meta_info = extract_info_with_timeout(
+                job.url,
+                meta_opts,
+                download=False,
+                timeout_seconds=METADATA_TIMEOUT_SECONDS,
+            )
+            meta_info = normalize_info_payload(meta_info)
+            estimated_size = estimate_download_size(meta_info, job.format_id, job.download_type, job.quality)
+            if ASYNC_DOWNLOAD_ENABLED and (force_async or (estimated_size and estimated_size > MAX_DOWNLOAD_BYTES)):
+                job_payload = {
+                    "job_id": download_id,
+                    "url": job.url,
+                    "platform": job.platform,
+                    "download_type": job.download_type,
+                    "quality": job.quality,
+                    "format_id": job.format_id,
+                }
+                job_id = enqueue_job(job_payload)
+                return success_response(
+                    {
+                        "status": "queued",
+                        "job_id": job_id,
+                        "poll_url": f"/api/jobs/{job_id}",
+                    },
+                    202,
+                )
+            if estimated_size and estimated_size > MAX_DOWNLOAD_BYTES:
+                set_progress(
+                    download_id,
+                    {
+                        "status": "rejected",
+                        "reason": "File exceeds serverless size limit.",
+                        "estimated_size_bytes": estimated_size,
+                    },
+                )
+                raise APIError(
+                    "File too large for serverless download. Reduce quality or use async processing.",
+                    413,
+                )
+
         work_dir = create_work_dir()
-        ydl_opts = build_ydl_options(job, work_dir)
+
+        def progress_hook(progress: dict):
+            status = progress.get("status")
+            if status == "downloading":
+                total = progress.get("total_bytes") or progress.get("total_bytes_estimate")
+                downloaded = progress.get("downloaded_bytes") or 0
+                percent = None
+                if total:
+                    try:
+                        percent = int(downloaded * 100 / total)
+                    except Exception:
+                        percent = None
+                set_progress(
+                    download_id,
+                    {
+                        "status": "downloading",
+                        "downloaded_bytes": downloaded,
+                        "total_bytes": total,
+                        "percent": percent,
+                        "speed": progress.get("speed"),
+                        "eta": progress.get("eta"),
+                    },
+                )
+            elif status == "finished":
+                set_progress(
+                    download_id,
+                    {
+                        "status": "processing",
+                        "downloaded_bytes": progress.get("downloaded_bytes"),
+                        "total_bytes": progress.get("total_bytes"),
+                    },
+                )
 
         logger.info(
             "Starting download platform=%s type=%s quality=%s format_id=%s",
@@ -1500,24 +2109,75 @@ def download_video():
             job.format_id,
         )
 
-        if job.platform == "facebook":
+        fallback_formats = build_fallback_formats(job)
+        attempt_formats = [None] + fallback_formats
+        info = None
+
+        for idx, fmt in enumerate(attempt_formats):
+            ydl_opts = build_ydl_options(job, work_dir, force_format=fmt, progress_hook=progress_hook)
             try:
-                info = extract_info_with_options(job.url, ydl_opts, download=True)
-            except DownloadError as first_error:
-                if is_facebook_retryable_error(first_error):
-                    retry_opts = dict(ydl_opts)
-                    retry_opts["format"] = "worst"  # CHANGED: required silent Facebook retry fallback.
-                    info = extract_info_with_options(job.url, retry_opts, download=True)
+                if job.platform == "facebook":
+                    try:
+                        info = extract_info_with_timeout(
+                            job.url,
+                            ydl_opts,
+                            download=True,
+                            timeout_seconds=DOWNLOAD_TIMEOUT_SECONDS,
+                        )
+                    except DownloadError as first_error:
+                        if is_facebook_retryable_error(first_error):
+                            retry_opts = dict(ydl_opts)
+                            retry_opts["format"] = "worst"  # CHANGED: required silent Facebook retry fallback.
+                            info = extract_info_with_timeout(
+                                job.url,
+                                retry_opts,
+                                download=True,
+                                timeout_seconds=DOWNLOAD_TIMEOUT_SECONDS,
+                            )
+                        else:
+                            raise
                 else:
-                    raise
-        else:
-            info = extract_info_with_options(job.url, ydl_opts, download=True)
+                    info = extract_info_with_timeout(
+                        job.url,
+                        ydl_opts,
+                        download=True,
+                        timeout_seconds=DOWNLOAD_TIMEOUT_SECONDS,
+                    )
+                break
+            except DownloadError as error:
+                if idx < len(attempt_formats) - 1:
+                    logger.warning("Download attempt failed, retrying with fallback format.")
+                    continue
+                raise
 
         info = normalize_info_payload(info)
         media_path = pick_media_file(work_dir)
         title = sanitize_filename(str(info.get("title", "video"))) if isinstance(info, dict) else "video"
         download_name = f"{title}{media_path.suffix.lower()}"
         file_size = os.path.getsize(media_path)
+        set_progress(
+            download_id,
+            {
+                "status": "ready",
+                "filename": download_name,
+                "file_size": file_size,
+            },
+        )
+
+        content_type = "application/octet-stream"
+        ext = media_path.suffix.lower()
+        if ext == ".mp4":
+            content_type = "video/mp4"
+        elif ext == ".webm":
+            content_type = "video/webm"
+        elif ext == ".mkv":
+            content_type = "video/x-matroska"
+        elif ext == ".mov":
+            content_type = "video/quicktime"
+        elif ext == ".mp3":
+            content_type = "audio/mpeg"
+        elif ext == ".m4a":
+            content_type = "audio/mp4"
 
         def stream_file(filepath: Path, chunk_size: int = 262144):
             with open(filepath, "rb") as file_handle:
@@ -1537,19 +2197,26 @@ def download_video():
             status=200,
             headers={
                 "Content-Disposition": f'attachment; filename="{download_name}"',
-                "Content-Type": "video/mp4",
+                "Content-Type": content_type,
                 "Content-Length": str(file_size),
                 "Accept-Ranges": "bytes",
                 "X-Content-Type-Options": "nosniff",
                 "Cache-Control": "no-store",
+                "X-Download-Id": download_id,
             },
         )
-        response.call_on_close(lambda: cleanup_work_dir(work_dir))
+        response.call_on_close(
+            lambda: (
+                set_progress(download_id, {"status": "completed"}),
+                cleanup_work_dir(work_dir),
+            )
+        )
         return response
 
     except APIError as error:
         cleanup_work_dir(work_dir)
-        return jsonify({"error": error.message}), error.status_code
+        set_progress(download_id, {"status": "failed", "error": error.message})
+        return error_response(error.message, error.status_code, {"download_id": download_id})
     except DownloadError as error:
         cleanup_work_dir(work_dir)
         mapped_error = map_download_error(  # FIXED: TIKTOK
@@ -1558,7 +2225,8 @@ def download_video():
             url=job.url if "job" in locals() else None,  # FIXED: TIKTOK
         )  # FIXED: TIKTOK
         logger.warning("DownloadError: %s", error)
-        return jsonify({"error": mapped_error.message}), mapped_error.status_code
+        set_progress(download_id, {"status": "failed", "error": mapped_error.message})
+        return error_response(mapped_error.message, mapped_error.status_code, {"download_id": download_id})
     except Exception as error:
         cleanup_work_dir(work_dir)
         logger.exception("Unhandled download error")
@@ -1567,12 +2235,206 @@ def download_video():
             platform=job.platform if "job" in locals() else None,  # FIXED: TIKTOK
             url=job.url if "job" in locals() else None,  # FIXED: TIKTOK
         )  # FIXED: TIKTOK
-        return jsonify({"error": mapped_error.message}), mapped_error.status_code
+        set_progress(download_id, {"status": "failed", "error": mapped_error.message})
+        return error_response(mapped_error.message, mapped_error.status_code, {"download_id": download_id})
+
+
+def process_download_job(job_payload: dict) -> dict:
+    work_dir: Path | None = None
+    job_id = str(job_payload.get("job_id") or uuid.uuid4().hex)
+    try:
+        url = str(job_payload.get("url", "")).strip()
+        platform = str(job_payload.get("platform", "")).strip()
+        download_type = str(job_payload.get("download_type", "video")).strip().lower()
+        quality = str(job_payload.get("quality", "best")).strip().lower().replace("p", "")
+        format_id = str(job_payload.get("format_id", "")).strip() or None
+
+        job = DownloadRequest(
+            url=url,
+            platform=platform,
+            download_type=download_type,
+            quality=quality,
+            format_id=format_id,
+        )
+
+        if job.platform == "tiktok":
+            job = DownloadRequest(
+                url=normalize_tiktok_url(job.url),
+                platform=job.platform,
+                download_type=job.download_type,
+                quality=job.quality,
+                format_id=job.format_id,
+            )
+
+        set_job_status(
+            job_id,
+            {
+                "status": "processing",
+                "platform": job.platform,
+                "url": job.url,
+            },
+        )
+
+        work_dir = create_work_dir()
+
+        def progress_hook(progress: dict):
+            if progress.get("status") != "downloading":
+                return
+            total = progress.get("total_bytes") or progress.get("total_bytes_estimate")
+            downloaded = progress.get("downloaded_bytes") or 0
+            percent = None
+            if total:
+                try:
+                    percent = int(downloaded * 100 / total)
+                except Exception:
+                    percent = None
+            set_job_status(
+                job_id,
+                {
+                    "status": "downloading",
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total,
+                    "percent": percent,
+                    "speed": progress.get("speed"),
+                    "eta": progress.get("eta"),
+                },
+            )
+
+        fallback_formats = build_fallback_formats(job)
+        attempt_formats = [None] + fallback_formats
+        info = None
+
+        for idx, fmt in enumerate(attempt_formats):
+            ydl_opts = build_ydl_options(job, work_dir, force_format=fmt, progress_hook=progress_hook)
+            try:
+                info = extract_info_with_timeout(
+                    job.url,
+                    ydl_opts,
+                    download=True,
+                    timeout_seconds=ASYNC_DOWNLOAD_TIMEOUT_SECONDS,
+                )
+                break
+            except DownloadError:
+                if idx < len(attempt_formats) - 1:
+                    logger.warning("Async download retrying with fallback format.")
+                    continue
+                raise
+
+        info = normalize_info_payload(info)
+        media_path = pick_media_file(work_dir)
+        title = sanitize_filename(str(info.get("title", "video"))) if isinstance(info, dict) else "video"
+        download_name = f"{title}{media_path.suffix.lower()}"
+        file_size = os.path.getsize(media_path)
+
+        storage_key = f"{job.platform}/{job_id}/{download_name}"
+        download_url = upload_to_object_storage(media_path, storage_key)
+
+        set_job_status(
+            job_id,
+            {
+                "status": "completed",
+                "download_url": download_url,
+                "filename": download_name,
+                "file_size": file_size,
+            },
+        )
+        return {"job_id": job_id, "download_url": download_url}
+
+    except APIError as error:
+        set_job_status(job_id, {"status": "failed", "error": error.message, "code": error.status_code})
+        raise
+    except DownloadError as error:
+        mapped_error = map_download_error(error, platform=job_payload.get("platform"), url=job_payload.get("url"))
+        set_job_status(job_id, {"status": "failed", "error": mapped_error.message, "code": mapped_error.status_code})
+        raise mapped_error
+    except Exception as error:
+        logger.exception("Unhandled async job error")
+        mapped_error = map_download_error(error, platform=job_payload.get("platform"), url=job_payload.get("url"))
+        set_job_status(job_id, {"status": "failed", "error": mapped_error.message, "code": mapped_error.status_code})
+        raise mapped_error
+    finally:
+        cleanup_work_dir(work_dir)
+
+
+@app.route("/api/download/async", methods=["POST"])
+@limiter.limit(DOWNLOAD_RATE_LIMIT)
+def download_video_async():
+    if not ASYNC_DOWNLOAD_ENABLED:
+        return error_response("Async downloads are disabled.", 403)
+    raw_data = request.get_json(silent=True, force=True) or {}
+    if not isinstance(raw_data, dict):
+        return error_response("Malformed JSON payload.", 400)
+
+    job = parse_download_payload()
+    job_payload = {
+        "job_id": uuid.uuid4().hex,
+        "url": job.url,
+        "platform": job.platform,
+        "download_type": job.download_type,
+        "quality": job.quality,
+        "format_id": job.format_id,
+    }
+    job_id = enqueue_job(job_payload)
+    return success_response(
+        {
+            "status": "queued",
+            "job_id": job_id,
+            "poll_url": f"/api/jobs/{job_id}",
+        },
+        202,
+    )
+
+
+@app.route("/api/jobs/<job_id>", methods=["GET"])
+@limiter.limit("30 per minute")
+def get_download_job(job_id: str):
+    status = get_job_status(job_id)
+    if not status:
+        return error_response("Job not found.", 404)
+    payload = {"job_id": job_id}
+    payload.update(status)
+    return success_response(payload)
+
+
+@app.route("/api/worker/process", methods=["POST"])
+def worker_process():
+    if QUEUE_WORKER_SECRET:
+        supplied = request.headers.get("X-Worker-Secret") or ""
+        if supplied != QUEUE_WORKER_SECRET:
+            return error_response("Unauthorized", 401)
+
+    body = request.get_json(silent=True, force=True)
+    if isinstance(body, dict) and body.get("job_id"):
+        job_payload = body
+    else:
+        job_payload = dequeue_job()
+
+    if not job_payload:
+        return success_response({"status": "empty"})
+
+    result = process_download_job(job_payload)
+    return success_response({"status": "processed", **result})
+
+
+@app.route("/api/progress/<download_id>", methods=["GET"])
+@limiter.limit("20 per minute")
+def download_progress(download_id: str):
+    data = get_progress(download_id)
+    if not data:
+        return error_response("Download progress not found.", 404)
+    payload = {"download_id": download_id}
+    payload.update(data)
+    return success_response(payload)
 
 
 @app.errorhandler(413)
 def payload_too_large(_error):
-    return jsonify({"error": "Request payload too large."}), 413
+    return error_response("Request payload too large.", 413)
+
+
+@app.errorhandler(APIError)
+def api_error_handler(error):
+    return error_response(error.message, error.status_code)
 
 
 @app.errorhandler(429)
@@ -1584,7 +2446,9 @@ def rate_limit_exceeded(error):
         retry_after = 60
     retry_after = max(1, retry_after)
 
-    return jsonify({"error": "Rate limit exceeded", "retry_after": retry_after}), 429
+    response, status = error_response("Rate limit exceeded", 429, {"retry_after": retry_after})
+    response.headers["Retry-After"] = str(retry_after)
+    return response, status
 
 
 @app.route("/robots.txt", methods=["GET"])
@@ -1616,6 +2480,6 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"URL: http://127.0.0.1:{port}")
     print(f"Alternative: http://localhost:{port}")
-    print("Supported platforms: YouTube, Facebook, TikTok, Twitter/X, Instagram")
+    print(f"Supported platforms: {', '.join(sorted(SUPPORTED_PLATFORM_DOMAINS.keys()))}")
     print("=" * 50 + "\n")
     app.run(debug=debug, threaded=True, host="0.0.0.0", port=port)
