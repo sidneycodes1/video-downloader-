@@ -1,58 +1,74 @@
-# Multi-Platform Video Downloader
+# 📥 VidSave — Multi-Platform Video Downloader
 
-<!-- # CHANGED: README now reflects the current live API and backend behavior exactly. -->
+A fast, clean web app for downloading videos from your favourite social platforms. Paste a link, pick a format, and save — no accounts, no extensions required.
 
-A Flask web app that accepts a supported social-video URL, returns metadata/format options, and streams a downloadable file.
+**🌐 Live at → [video-downloader-eta-drab.vercel.app](https://video-downloader-eta-drab.vercel.app/)**
+
+---
 
 ## Supported Platforms
 
-- YouTube
-- TikTok
-- Instagram
-- Facebook
-- X (Twitter)
+| Platform | Status |
+|---|---|
+| YouTube | ✅ |
+| TikTok | ✅ |
+| Instagram | ✅ |
+| Facebook | ✅ |
+| X (Twitter) | ✅ |
 
-## Requirements
+---
 
-- Python 3.10+
-- `pip`
+## Features
 
-## Install
+- Paste any supported URL and get video metadata instantly — title, thumbnail, duration, uploader
+- Choose your preferred quality and format before downloading
+- Schedule downloads for later
+- Download history saved locally in your browser
+- Rate limited and secured against private network abuse
+- No database — stateless and serverless-friendly
 
-```bash
-pip install -r requirements.txt
-```
+---
 
-## Run
+## Stack
 
-```bash
-python vid.py
-```
+- **Backend** — Python, Flask, yt-dlp
+- **Frontend** — Vanilla HTML/CSS/JS
+- **Deployment** — Vercel
 
-Open:
-
-- http://127.0.0.1:5000
+---
 
 ## Running Locally
 
 ```bash
+# Clone the repo
+git clone <your-repo-url>
+cd <project-folder>
+
+# Set up virtual environment
 python -m venv venv
-# Windows PowerShell:
+
+# Activate (Windows PowerShell)
 .\venv\Scripts\Activate.ps1
+
+# Activate (Mac/Linux)
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 pip install -U yt-dlp
+
+# Start the server
 python vid.py
 ```
 
+Then open [http://127.0.0.1:5000](http://127.0.0.1:5000)
+
+---
+
 ## API
 
-<!-- # CHANGED: removed outdated mode/job_id/status API sections. -->
-
 ### `GET /api/health`
-
-Returns service status plus key exposed endpoints.
-
-Example response:
+Returns service status and available endpoints.
 
 ```json
 {
@@ -62,33 +78,17 @@ Example response:
 }
 ```
 
-### `GET /api/debug/ydlp-version`
-
-Returns installed `yt-dlp` version to help diagnose TikTok extractor compatibility.
-
-Example response:
-
-```json
-{
-  "yt_dlp_version": "2025.02.19",
-  "tiktok_status": "ok"
-}
-```
+---
 
 ### `POST /api/metadata`
+Fetches video info without downloading.
 
-Inspects a URL with `yt-dlp` (`download=false`) and returns title/thumbnail/duration/uploader plus selectable formats.
-
-Request body:
-
+**Request**
 ```json
-{
-  "url": "https://www.youtube.com/watch?v=abc123"
-}
+{ "url": "https://www.youtube.com/watch?v=abc123" }
 ```
 
-Success response (shape):
-
+**Response**
 ```json
 {
   "title": "Example Video",
@@ -97,83 +97,48 @@ Success response (shape):
   "uploader": "Example Channel",
   "platform": "youtube",
   "formats": [
-    {
-      "format_id": "22",
-      "ext": "mp4",
-      "height": 720,
-      "filesize": 7000000,
-      "label": "720p MP4"
-    },
-    {
-      "format_id": "audio-only",
-      "ext": "mp3",
-      "height": null,
-      "filesize": null,
-      "label": "Audio only (MP3)"
-    }
+    { "format_id": "22", "ext": "mp4", "height": 720, "filesize": 7000000, "label": "720p MP4" },
+    { "format_id": "audio-only", "ext": "mp3", "height": null, "filesize": null, "label": "Audio only (MP3)" }
   ]
 }
 ```
 
-Error response:
-
-```json
-{
-  "error": "Human-readable error message"
-}
-```
+---
 
 ### `POST /api/download`
+Downloads and streams the media file.
 
-Downloads and streams the media file as an attachment.
-
-Request body:
-
+**Request**
 ```json
 {
   "url": "https://www.youtube.com/watch?v=abc123",
-  "platform": "YouTube",
   "download_type": "video",
   "quality": "best",
   "format_id": "22"
 }
 ```
 
-Notes:
+`download_type` — `video` or `audio`  
+`quality` — `best`, `1080`, `720`, `480`, or `360`  
+`format_id` — optional, alphanumeric + `-` or `+` only, max 20 chars
 
-- `platform` is optional as a hint. Backend auto-detects from URL.
-- `download_type` must be `video` or `audio`.
-- `quality` must be one of `best`, `1080`, `720`, `480`, `360`.
-- `format_id` is optional and must be alphanumeric with `+` or `-` only (max 20 chars).
-- On success, response is file stream with:
-  - `Content-Disposition: attachment; ...`
-  - `Cache-Control: no-store`
+---
 
-Error response:
+### `GET /api/debug/ydlp-version`
+Returns the installed yt-dlp version — useful for debugging extractor issues.
 
 ```json
 {
-  "error": "Human-readable error message"
+  "yt_dlp_version": "2025.02.19",
+  "tiktok_status": "ok"
 }
 ```
 
-## Security and Stability Controls
-
-- URL scheme and hostname validation (`http`/`https` only)
-- Local/private network URL rejection
-- Platform domain allowlist
-- Request payload size limit (small JSON body only)
-- CORS configurable for `/api/*`
-- Temporary per-download work directories with automatic cleanup
-- Stale workspace cleanup at startup and periodically during runtime
+---
 
 ## Rate Limiting
 
-<!-- # CHANGED: documents actual limiter behavior in live code. -->
-
-- `POST /api/download`: `5` successful downloads per minute per client IP
-- `POST /api/metadata`: `5` requests per minute per client IP
-- On limit breach, API returns:
+Both `/api/download` and `/api/metadata` are limited to **5 requests per minute per IP**.
 
 ```json
 {
@@ -182,51 +147,68 @@ Error response:
 }
 ```
 
-## Configuration (Environment Variables)
+---
 
-- `PORT` (default: `5000`)
-- `FLASK_DEBUG` (`1` or `0`)
-- `LOG_LEVEL` (default: `INFO`)
-- `CORS_ORIGINS` (default: `*`; comma-separated for restricted origins)
-- `REDIS_URL` (optional; limiter storage, defaults to `memory://`)
-- `DOWNLOAD_WORK_DIR` (default: `./.download_tmp`)
-- `WORKSPACE_CLEANUP_INTERVAL_SECONDS` (default: `300`)
-- `WORK_DIR_TTL_SECONDS` (default: `3600`)
-- `DOWNLOAD_SOCKET_TIMEOUT` (default: `35`)
-- `DOWNLOAD_RETRIES` (default: `3`)
-- `DOWNLOAD_FRAGMENT_RETRIES` (default: `3`)
-- `YTDLP_FORCE_IPV4` (default: `1`; set `0` to disable)
-- `YTDLP_COOKIES_BROWSER` (optional)
-- `YTDLP_COOKIES_FILE` (optional)
+## Configuration
 
-## Limitations
+All config is via environment variables — no `.env` file required for local dev, defaults are sensible.
 
-<!-- # CHANGED: added requested MVP limitations. -->
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `5000` | Server port |
+| `FLASK_DEBUG` | `0` | Debug mode |
+| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+| `REDIS_URL` | `memory://` | Rate limiter storage |
+| `DOWNLOAD_WORK_DIR` | `/tmp/.download_tmp` | Temp download directory |
+| `WORKSPACE_CLEANUP_INTERVAL_SECONDS` | `300` | Cleanup interval |
+| `WORK_DIR_TTL_SECONDS` | `3600` | Temp dir lifetime |
+| `DOWNLOAD_SOCKET_TIMEOUT` | `35` | yt-dlp socket timeout |
+| `DOWNLOAD_RETRIES` | `3` | yt-dlp download retries |
+| `DOWNLOAD_FRAGMENT_RETRIES` | `3` | yt-dlp fragment retries |
+| `YTDLP_FORCE_IPV4` | `1` | Force IPv4 for yt-dlp |
+| `YTDLP_COOKIES_BROWSER` | — | Browser to pull cookies from |
+| `YTDLP_COOKIES_FILE` | — | Path to cookies file |
 
-- Facebook downloads currently work best with public videos.
-- Instagram downloads currently work best with public posts/reels.
-- TikTok downloads currently work best with public videos.
-- Download rate limit is 5 successful downloads/minute per IP.
+---
 
-## Troubleshooting
-
-1. `TikTok download failed` or extractor errors
-   - Run `pip install -U yt-dlp`, restart Flask, and test again.
-2. `Rate limit exceeded` or platform 429
-   - Wait 1-2 minutes before retrying.
-3. `Local or private network URLs are not allowed`
-   - Use a public `http://` or `https://` social video URL.
-4. `This video is private or requires login`
-   - Use public content or provide supported cookies where applicable.
-5. Metadata succeeds but format options are limited
-   - Continue with `best` format; some platforms hide full variant lists.
-
-## Tests
-
-Run backend tests:
+## Running Tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Tests mock `yt_dlp`, so they run without external network access.
+Tests mock yt-dlp — no network access needed.
+
+---
+
+## Troubleshooting
+
+**TikTok download failed**  
+Run `pip install -U yt-dlp`, restart Flask, and try again.
+
+**Rate limit exceeded**  
+Wait 60 seconds before retrying.
+
+**"This video is private or requires login"**  
+Use public content, or pass cookies via `YTDLP_COOKIES_FILE` or `YTDLP_COOKIES_BROWSER`.
+
+**Metadata loads but format options are limited**  
+Some platforms restrict format listings. Download with `best` quality as fallback.
+
+**YouTube bot detection error**  
+YouTube sometimes blocks datacenter IPs. Try passing browser cookies via the `YTDLP_COOKIES_BROWSER` env variable.
+
+---
+
+## Limitations
+
+- Facebook and Instagram work best with public content
+- YouTube on serverless deployments may require cookies to bypass bot detection
+- Download rate limit is 5 per minute per IP
+
+---
+
+## License
+
+MIT
